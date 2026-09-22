@@ -4,6 +4,16 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const sendEmail = require('../config/nodemailer');
 
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET || 'tradspire-secret-key', {
+    expiresIn: '7d'
+  });
+};
+
+const emailVerificationRequired = () => {
+  return process.env.ENABLE_EMAIL_VERIFICATION === 'true';
+};
+
 // 1. Get all users
 // @route   GET /api/users
 exports.getUsers = async (req, res) => {
@@ -21,7 +31,13 @@ exports.createUser = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    const userExists = await User.findOne({ email });
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Please provide name, email and password' });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const userExists = await User.findOne({ email: normalizedEmail });
     if (userExists) {
       return res.status(400).json({ message: 'User already exists' });
     }
@@ -30,29 +46,50 @@ exports.createUser = async (req, res) => {
 
     const user = await User.create({
       name,
-      email,
+      email: normalizedEmail,
       password,
       verificationToken,
       verificationTokenExpire: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
     });
 
-    const verifyUrl = `${req.protocol}://${req.get('host')}/api/users/verify/${verificationToken}`;
+    if (emailVerificationRequired()) {
+      const verifyUrl = `${req.protocol}://${req.get('host')}/api/users/verify/${verificationToken}`;
 
-    const message = `
-      <h1>Verify Your Email</h1>
-      <p>Please click the link below to verify your account:</p>
-      <a href="${verifyUrl}" target="_blank">${verifyUrl}</a>
-    `;
+      const message = `
+        <h1>Verify Your Email</h1>
+        <p>Please click the link below to verify your account:</p>
+        <a href="${verifyUrl}" target="_blank">${verifyUrl}</a>
+      `;
 
-    await sendEmail({
-      email: user.email,
-      subject: 'Account Email Verification',
-      html: message
-    });
+      try {
+        await sendEmail({
+          email: user.email,
+          subject: 'Account Email Verification',
+          html: message
+        });
 
-    res.status(201).json({
+        return res.status(201).json({
+          success: true,
+          message: 'Registration successful. Please check your email to verify your account.'
+        });
+      } catch (emailErr) {
+        console.warn('Email verification failed, auto-approving user for local testing:', emailErr.message);
+        user.isVerified = true;
+        await user.save();
+
+        return res.status(201).json({
+          success: true,
+          message: 'Registration successful. Email verification could not be sent, so your account was auto-approved for this environment.'
+        });
+      }
+    }
+
+    user.isVerified = true;
+    await user.save();
+
+    return res.status(201).json({
       success: true,
-      message: 'Registration successful. Please check your email to verify your account.'
+      message: 'Registration successful. Email verification is disabled in this environment, so your account is ready to log in.'
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -96,8 +133,10 @@ exports.loginUser = async (req, res) => {
       return res.status(400).json({ message: 'Please provide email and password' });
     }
 
+    const normalizedEmail = email.toLowerCase().trim();
+
     // Select password field (since select: false is set in the schema)
-    const user = await User.findOne({ email }).select('+password');
+    const user = await User.findOne({ email: normalizedEmail }).select('+password');
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
@@ -108,16 +147,19 @@ exports.loginUser = async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // Ensure email is verified
-    if (!user.isVerified) {
+    // Ensure email is verified only when verification is explicitly required
+    if (!user.isVerified && emailVerificationRequired()) {
       return res.status(403).json({
         message: 'Please verify your email address before logging in.'
       });
     }
 
+    const token = generateToken(user._id);
+
     res.status(200).json({
       success: true,
       message: 'Logged in successfully',
+      token,
       user: {
         _id: user._id,
         name: user.name,
