@@ -4,7 +4,9 @@ const {
   getUsers,
   createUser,
   verifyEmail,
-  loginUser
+  loginUser,
+  forgotPassword,
+  resetPassword
 } = require('../controllers/userController');
 
 // @route   GET /api/users
@@ -15,6 +17,12 @@ router.route('/')
 
 // @route   POST /api/users/login
 router.post('/login', loginUser);
+
+// @route   POST /api/users/forgot-password
+router.post('/forgot-password', forgotPassword);
+
+// @route   POST /api/users/reset-password/:token
+router.post('/reset-password/:token', resetPassword);
 
 // @route   GET /api/users/verify/:token
 router.get('/verify/:token', verifyEmail);

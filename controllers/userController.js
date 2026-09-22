@@ -19,6 +19,11 @@ const emailVerificationRequired = () => {
   return process.env.ENABLE_EMAIL_VERIFICATION === 'true';
 };
 
+const getPasswordResetUrl = (token) => {
+  const baseUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
+  return `${baseUrl}/reset-password.html?token=${token}`;
+};
+
 // 1. Get all users
 // @route   GET /api/users
 exports.getUsers = async (req, res) => {
@@ -184,5 +189,82 @@ exports.loginUser = async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+};
+
+// 5. Request a password reset email
+// @route   POST /api/users/forgot-password
+exports.forgotPassword = async (req, res) => {
+  const genericResponse = {
+    success: true,
+    message: 'If an account exists for that email, a password reset link has been sent.'
+  };
+
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: 'Please provide an email address' });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await User.findOne({ email: normalizedEmail }).select('+resetPasswordToken +resetPasswordExpire');
+
+    if (!user) {
+      return res.status(200).json(genericResponse);
+    }
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    user.resetPasswordExpire = Date.now() + 15 * 60 * 1000;
+    await user.save({ validateBeforeSave: false });
+
+    const resetUrl = getPasswordResetUrl(resetToken);
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Reset Your Tradspire Password',
+        html: `<h1>Password Reset</h1><p>This link expires in 15 minutes.</p><a href="${resetUrl}">${resetUrl}</a>`
+      });
+    } catch (emailError) {
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpire = undefined;
+      await user.save({ validateBeforeSave: false });
+      throw emailError;
+    }
+
+    return res.status(200).json(genericResponse);
+  } catch (err) {
+    console.error('Password reset email failed:', err.message);
+    return res.status(500).json({ message: 'Unable to send password reset email' });
+  }
+};
+
+// 6. Set a new password with a valid reset token
+// @route   POST /api/users/reset-password/:token
+exports.resetPassword = async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password) {
+      return res.status(400).json({ message: 'Please provide a new password' });
+    }
+
+    const hashedToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
+    const user = await User.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpire: { $gt: Date.now() }
+    }).select('+password +resetPasswordToken +resetPasswordExpire');
+
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired password reset token' });
+    }
+
+    user.password = password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+    await user.save();
+
+    return res.status(200).json({ success: true, message: 'Password reset successfully' });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
   }
 };
