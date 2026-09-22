@@ -10,6 +10,11 @@ const generateToken = (id) => {
   });
 };
 
+const getFrontendRedirectUrl = () => {
+  const baseUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
+  return `${baseUrl}/homepage.html`;
+};
+
 const emailVerificationRequired = () => {
   return process.env.ENABLE_EMAIL_VERIFICATION === 'true';
 };
@@ -29,13 +34,14 @@ exports.getUsers = async (req, res) => {
 // @route   POST /api/users
 exports.createUser = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, role = 'user' } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'Please provide name, email and password' });
     }
 
     const normalizedEmail = email.toLowerCase().trim();
+    const normalizedRole = ['user', 'admin'].includes(role) ? role : 'user';
 
     const userExists = await User.findOne({ email: normalizedEmail });
     if (userExists) {
@@ -47,6 +53,7 @@ exports.createUser = async (req, res) => {
     const user = await User.create({
       name,
       email: normalizedEmail,
+      role: normalizedRole,
       password,
       verificationToken,
       verificationTokenExpire: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
@@ -89,7 +96,14 @@ exports.createUser = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Registration successful. Email verification is disabled in this environment, so your account is ready to log in.'
+      message: 'Registration successful. Email verification is disabled in this environment, so your account is ready to log in.',
+      redirectUrl: getFrontendRedirectUrl(),
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -160,10 +174,12 @@ exports.loginUser = async (req, res) => {
       success: true,
       message: 'Logged in successfully',
       token,
+      redirectUrl: getFrontendRedirectUrl(),
       user: {
         _id: user._id,
         name: user.name,
-        email: user.email
+        email: user.email,
+        role: user.role
       }
     });
   } catch (err) {
