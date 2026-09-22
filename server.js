@@ -39,6 +39,11 @@ connectDB();
 // Routes
 app.use('/api/users', userRoutes);
 
+// Keep API errors JSON so clients do not try to parse an HTML fallback page.
+app.use('/api', (req, res) => {
+  res.status(404).json({ message: `API route not found: ${req.method} ${req.originalUrl}` });
+});
+
 app.get('/', (req, res) => {
   res.send('Tradspire API is running on Vercel');
 });
