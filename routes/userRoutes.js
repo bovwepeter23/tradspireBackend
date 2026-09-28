@@ -8,11 +8,12 @@ const {
   forgotPassword,
   resetPassword
 } = require('../controllers/userController');
+const { protect, adminOnly } = require('../middleware/auth');
 
 // @route   GET /api/users
 // @route   POST /api/users
 router.route('/')
-  .get(getUsers)
+  .get(protect, adminOnly, getUsers)
   .post(createUser);
 
 // @route   POST /api/users/login

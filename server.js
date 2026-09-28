@@ -21,6 +21,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const connectDB = require('./config/db');
 const userRoutes = require('./routes/userRoutes');
+const productRoutes = require('./routes/productRoutes');
 
 dotenv.config();
 
@@ -33,11 +34,19 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Connect DB
-connectDB();
+app.use('/api', async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    console.error('Database connection failed:', error.message);
+    res.status(503).json({ message: 'Database is unavailable. Check MONGO_URI and database connectivity.' });
+  }
+});
 
 // Routes
 app.use('/api/users', userRoutes);
+app.use('/api/products', productRoutes);
 
 // Keep API errors JSON so clients do not try to parse an HTML fallback page.
 app.use('/api', (req, res) => {
@@ -46,6 +55,15 @@ app.use('/api', (req, res) => {
 
 app.get('/', (req, res) => {
   res.send('Tradspire API is running on Vercel');
+});
+
+app.use((error, req, res, next) => {
+  const status = error.status || error.statusCode || (error.code === 'LIMIT_FILE_SIZE' ? 413 :
+    error.name === 'ValidationError' ? 400 : error.code === 11000 ? 409 : 500);
+  if (status >= 500) console.error(error);
+  res.status(status).json({
+    message: status >= 500 && status !== 503 ? 'An unexpected server error occurred.' : error.message
+  });
 });
 
 // Run listener only during local development
