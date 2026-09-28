@@ -9,7 +9,7 @@ const connectDB = async () => {
 
   if (mongoose.connection.readyState === 1) return mongoose.connection;
 
-  if (connectionPromise) return connectionPromise;
+  if (connectionPromise && mongoose.connection.readyState === 2) return connectionPromise;
 
   connectionPromise = mongoose.connect(process.env.MONGO_URI)
     .then((connection) => {
@@ -21,11 +21,7 @@ const connectDB = async () => {
       throw error;
     });
 
-  try {
-    return await connectionPromise;
-  } catch (error) {
-    throw error;
-  }
+  return connectionPromise;
 };
 
 module.exports = connectDB;

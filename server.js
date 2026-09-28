@@ -54,7 +54,7 @@ app.use('/api', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('Tradspire API is running on Vercel');
+  res.send('Tradspire API is running');
 });
 
 app.use((error, req, res, next) => {
