@@ -22,7 +22,7 @@ const emailVerificationRequired = () => {
 
 const getPasswordResetUrl = (token) => {
   const baseUrl = (process.env.FRONTEND_URL || 'https://tradspire.com').replace(/\/$/, '');
-  return `${baseUrl}/public/html/reset-password.html?token=${encodeURIComponent(token)}`;
+  return `${baseUrl}/html/reset-password.html?token=${encodeURIComponent(token)}`;
 };
 
 // 1. Get all users
