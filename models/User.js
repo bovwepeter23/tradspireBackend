@@ -25,6 +25,10 @@ const userSchema = new mongoose.Schema(
       enum: ['user', 'admin'],
       default: 'user'
     },
+    tokenVersion: {
+      type: Number,
+      default: 0
+    },
     password: {
       type: String,
       required: [true, 'Please add a password'],

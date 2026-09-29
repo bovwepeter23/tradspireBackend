@@ -25,6 +25,9 @@ const protect = async (req, res, next) => {
 
   const user = await User.findById(payload.id);
   if (!user) return res.status(401).json({ message: 'Account no longer exists' });
+  if ((payload.tokenVersion ?? 0) !== (user.tokenVersion || 0)) {
+    return res.status(401).json({ message: 'Session has been revoked' });
+  }
   req.user = user;
   return next();
 };

@@ -5,6 +5,7 @@ const {
   createUser,
   verifyEmail,
   loginUser,
+  logoutUser,
   forgotPassword,
   resetPassword
 } = require('../controllers/userController');
@@ -18,6 +19,9 @@ router.route('/')
 
 // @route   POST /api/users/login
 router.post('/login', loginUser);
+
+// @route   POST /api/users/logout
+router.post('/logout', protect, logoutUser);
 
 // @route   POST /api/users/forgot-password
 router.post('/forgot-password', forgotPassword);

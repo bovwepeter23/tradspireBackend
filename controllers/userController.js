@@ -5,8 +5,8 @@ const User = require('../models/User');
 const sendEmail = require('../config/nodemailer');
 const getJwtSecret = require('../config/jwt');
 
-const generateToken = (id) => {
-  return jwt.sign({ id }, getJwtSecret(), {
+const generateToken = (user) => {
+  return jwt.sign({ id: user._id, tokenVersion: user.tokenVersion || 0 }, getJwtSecret(), {
     expiresIn: '7d'
   });
 };
@@ -21,8 +21,8 @@ const emailVerificationRequired = () => {
 };
 
 const getPasswordResetUrl = (token) => {
-  const baseUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
-  return `${baseUrl}/reset-password.html?token=${token}`;
+  const baseUrl = (process.env.FRONTEND_URL || 'https://tradspire.com').replace(/\/$/, '');
+  return `${baseUrl}/html/reset-password.html?token=${encodeURIComponent(token)}`;
 };
 
 // 1. Get all users
@@ -172,7 +172,7 @@ exports.loginUser = async (req, res) => {
       });
     }
 
-    const token = generateToken(user._id);
+    const token = generateToken(user);
 
     res.status(200).json({
       success: true,
@@ -189,6 +189,12 @@ exports.loginUser = async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
+};
+
+// @route   POST /api/users/logout
+exports.logoutUser = async (req, res) => {
+  await User.updateOne({ _id: req.user._id }, { $inc: { tokenVersion: 1 } });
+  res.status(200).json({ success: true, message: 'Logged out successfully' });
 };
 
 // 5. Request a password reset email
