@@ -329,16 +329,19 @@ exports.logoutUser = async (req, res) => {
 exports.forgotPassword = async (req, res) => {
   const genericResponse = {
     success: true,
-    message: 'If an account exists for that email, a new password has been sent.'
+    message: 'If the email is registered and within the daily reset limit, a new password will be sent shortly.'
   };
 
   try {
     const { email } = req.body;
-    if (!email) {
-      return res.status(400).json({ message: 'Please provide an email address' });
+    if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address.'
+      });
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedEmail = email.trim().toLowerCase();
     const user = await User.findOne({ email: normalizedEmail })
       .select('+password +resetPasswordToken +resetPasswordExpire');
 
@@ -433,14 +436,33 @@ exports.forgotPassword = async (req, res) => {
         restoreUpdate.$unset.resetPasswordExpire = 1;
       }
 
-      await User.updateOne({ _id: user._id, password: user.password }, restoreUpdate);
-      throw emailError;
+      try {
+        await User.updateOne({ _id: user._id, password: user.password }, restoreUpdate);
+      } catch (rollbackError) {
+        console.error('Password reset rollback failed:', rollbackError.message);
+        return res.status(500).json({
+          success: false,
+          message: 'Unable to complete the password reset request. Please contact support.'
+        });
+      }
+
+      console.error('Password reset email delivery failed:', {
+        code: emailError.code,
+        responseCode: emailError.responseCode
+      });
+      return res.status(503).json({
+        success: false,
+        message: 'Unable to send the password email right now. Please try again later.'
+      });
     }
 
     return res.status(200).json(genericResponse);
   } catch (err) {
-    console.error('Password reset email failed:', err.message);
-    return res.status(500).json({ message: 'Unable to send password reset email' });
+    console.error('Password reset request failed:', err.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to process the password reset request right now.'
+    });
   }
 };
 
