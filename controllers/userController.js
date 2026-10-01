@@ -2,11 +2,12 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 
 const User = require('../models/User');
+const RevokedToken = require('../models/RevokedToken');
 const sendEmail = require('../config/nodemailer');
 const getJwtSecret = require('../config/jwt');
 
-const generateToken = (user) => {
-  return jwt.sign({ id: user._id, tokenVersion: user.tokenVersion || 0 }, getJwtSecret(), {
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET || 'tradspire-secret-key', {
     expiresIn: '7d'
   });
 };
@@ -21,8 +22,8 @@ const emailVerificationRequired = () => {
 };
 
 const getPasswordResetUrl = (token) => {
-  const baseUrl = (process.env.FRONTEND_URL || 'https://tradspire.com').replace(/\/$/, '');
-  return `${baseUrl}/html/reset-password.html?token=${encodeURIComponent(token)}`;
+  const baseUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
+  return `${baseUrl}/reset-password.html?token=${token}`;
 };
 
 // 1. Get all users
@@ -191,18 +192,12 @@ exports.loginUser = async (req, res) => {
   }
 };
 
-// @route   POST /api/users/logout
-exports.logoutUser = async (req, res) => {
-  await User.updateOne({ _id: req.user._id }, { $inc: { tokenVersion: 1 } });
-  res.status(200).json({ success: true, message: 'Logged out successfully' });
-};
-
 // 5. Request a password reset email
 // @route   POST /api/users/forgot-password
 exports.forgotPassword = async (req, res) => {
   const genericResponse = {
     success: true,
-    message: 'If an account exists for that email, a password reset link has been sent.'
+    message: 'If an account exists for that email, a new password has been sent.'
   };
 
   try {
@@ -212,28 +207,70 @@ exports.forgotPassword = async (req, res) => {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    const user = await User.findOne({ email: normalizedEmail }).select('+resetPasswordToken +resetPasswordExpire');
+    const user = await User.findOne({ email: normalizedEmail })
+      .select('+password +resetPasswordToken +resetPasswordExpire');
 
     if (!user) {
       return res.status(200).json(genericResponse);
     }
 
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-    user.resetPasswordExpire = Date.now() + 15 * 60 * 1000;
-    await user.save({ validateBeforeSave: false });
+    const previousPasswordHash = user.password;
+    const previousResetPasswordToken = user.resetPasswordToken;
+    const previousResetPasswordExpire = user.resetPasswordExpire;
+    const newPassword = crypto.randomBytes(18).toString('base64url');
+    user.password = newPassword;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+    await user.save();
 
-    const resetUrl = getPasswordResetUrl(resetToken);
     try {
       await sendEmail({
         email: user.email,
-        subject: 'Reset Your Tradspire Password',
-        html: `<h1>Password Reset</h1><p>This link expires in 15 minutes.</p><a href="${resetUrl}">${resetUrl}</a>`
+        subject: 'Your new Tradspire password',
+        html: `
+          <!doctype html>
+          <html lang="en">
+            <body style="margin:0;padding:0;background-color:#f2f5f3;font-family:Arial,Helvetica,sans-serif;color:#192821;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f2f5f3;padding:40px 16px;">
+                <tr><td align="center">
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background-color:#ffffff;border:1px solid #dce5df;border-radius:12px;overflow:hidden;">
+                    <tr><td style="padding:28px 36px;background-color:#173c30;color:#ffffff;font-size:20px;font-weight:bold;">Tradspire</td></tr>
+                    <tr><td style="padding:36px;">
+                      <p style="margin:0 0 12px;font-size:16px;line-height:1.6;">Hello ${escapeHtml(user.name)},</p>
+                      <h1 style="margin:0 0 14px;font-size:25px;line-height:1.3;color:#173c30;">Your new password is ready</h1>
+                      <p style="margin:0 0 24px;font-size:15px;line-height:1.7;color:#53645a;">Use the password below to sign in to your Tradspire account.</p>
+                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f2f7f3;border:1px solid #dce8df;border-radius:8px;">
+                        <tr><td align="center" style="padding:18px 12px;font-family:monospace;font-size:20px;letter-spacing:1px;color:#173c30;word-break:break-all;">${newPassword}</td></tr>
+                      </table>
+                      <p style="margin:24px 0 0;font-size:14px;line-height:1.7;color:#53645a;">Enter this password with your email address when you log in. If you did not request this change, contact our support team promptly.</p>
+                    </td></tr>
+                    <tr><td style="padding:20px 36px;border-top:1px solid #e7ece8;font-size:12px;line-height:1.6;color:#718078;">This message contains sensitive account information. Please do not forward it.</td></tr>
+                  </table>
+                </td></tr>
+              </table>
+            </body>
+          </html>
+        `
       });
     } catch (emailError) {
-      user.resetPasswordToken = undefined;
-      user.resetPasswordExpire = undefined;
-      await user.save({ validateBeforeSave: false });
+      const restoreUpdate = {
+        $set: { password: previousPasswordHash },
+        $unset: {}
+      };
+
+      if (previousResetPasswordToken) {
+        restoreUpdate.$set.resetPasswordToken = previousResetPasswordToken;
+      } else {
+        restoreUpdate.$unset.resetPasswordToken = 1;
+      }
+
+      if (previousResetPasswordExpire) {
+        restoreUpdate.$set.resetPasswordExpire = previousResetPasswordExpire;
+      } else {
+        restoreUpdate.$unset.resetPasswordExpire = 1;
+      }
+
+      await User.updateOne({ _id: user._id, password: user.password }, restoreUpdate);
       throw emailError;
     }
 
