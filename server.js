@@ -48,6 +48,7 @@ app.use('/api', async (req, res, next) => {
 // Routes
 app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
+app.use('/api/carousel', carouselImageRoutes);
 app.use('/api/carousel-images', carouselImageRoutes);
 
 // Keep API errors JSON so clients do not try to parse an HTML fallback page.
