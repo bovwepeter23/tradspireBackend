@@ -24,6 +24,22 @@ db.users.updateOne(
 
 Sign out and back in after promotion so the frontend receives the updated role. Public registration always creates a `user`; product writes also verify the account role from MongoDB on every request.
 
+## Account API
+
+- `GET /api/users/me` returns the signed-in user's profile. `PATCH /api/users/me` updates `name`, `email`, and/or `phone`; email changes are sent for verification when `ENABLE_EMAIL_VERIFICATION=true`.
+- `PATCH /api/users/me/delivery-address` saves the default address. Required fields are `recipientName`, `phone`, `street`, `city`, and `country`; `region`, `postalCode`, and `instructions` are optional. The address can also be passed as `deliveryAddress` in the request body.
+- `PATCH /api/users/me/password` requires `currentPassword` and `newPassword`. Changing the password invalidates existing sessions, so the user must sign in again.
+
+All account routes above require `Authorization: Bearer <token>`.
+
+## Order API
+
+- `POST /api/orders` creates an order for the signed-in user. Send `items` as an array of `{ productId, quantity, purchaseType }`; `purchaseType` is `buy` or `rent`. Rental items also require `rentalDays` (1-365). Prices and totals are calculated from the current product data on the server.
+- Pass a `deliveryAddress` object in the order request or use the user's saved default address. Orders store a snapshot of the address and item names/images/prices at checkout.
+- `GET /api/orders/mine` lists the signed-in user's orders. `GET /api/orders/:id` returns an order to its owner or an admin.
+- `PATCH /api/orders/:id/cancel` lets the order owner cancel an order while it is `pending`, `confirmed`, or `processing`. The optional request field `reason` records why.
+- Admins can use `GET /api/orders` (optionally `?status=pending`) to list orders and `PATCH /api/orders/:id/status` with `{ "status": "processing" }` to update status. Supported statuses are `pending`, `confirmed`, `processing`, `shipped`, `delivered`, and `cancelled`. Delivered and cancelled orders are terminal.
+
 ## Product API
 
 - `GET /api/products` and `GET /api/products/:id` are public catalog reads.

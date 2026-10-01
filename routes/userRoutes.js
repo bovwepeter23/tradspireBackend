@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const {
   getUsers,
+  getMyProfile,
+  updateMyProfile,
+  updateDeliveryAddress,
+  changePassword,
   createUser,
   verifyEmail,
   loginUser,
@@ -16,6 +20,13 @@ const { protect, adminOnly } = require('../middleware/auth');
 router.route('/')
   .get(protect, adminOnly, getUsers)
   .post(createUser);
+
+router.route('/me')
+  .get(protect, getMyProfile)
+  .patch(protect, updateMyProfile);
+
+router.patch('/me/delivery-address', protect, updateDeliveryAddress);
+router.patch('/me/password', protect, changePassword);
 
 // @route   POST /api/users/login
 router.post('/login', loginUser);

@@ -1,6 +1,17 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
+const deliveryAddressSchema = new mongoose.Schema({
+  recipientName: { type: String, trim: true, maxlength: 120 },
+  phone: { type: String, trim: true, maxlength: 30 },
+  street: { type: String, trim: true, maxlength: 200 },
+  city: { type: String, trim: true, maxlength: 100 },
+  region: { type: String, trim: true, maxlength: 100 },
+  postalCode: { type: String, trim: true, maxlength: 30 },
+  country: { type: String, trim: true, maxlength: 100 },
+  instructions: { type: String, trim: true, maxlength: 500 }
+}, { _id: false });
+
 // 1. Define what a User looks like in MongoDB
 const userSchema = new mongoose.Schema(
   {
@@ -24,6 +35,15 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ['user', 'admin'],
       default: 'user'
+    },
+    phone: {
+      type: String,
+      trim: true,
+      maxlength: 30
+    },
+    deliveryAddress: {
+      type: deliveryAddressSchema,
+      default: undefined
     },
     tokenVersion: {
       type: Number,

@@ -6,11 +6,23 @@ const RevokedToken = require('../models/RevokedToken');
 const sendEmail = require('../config/nodemailer');
 const getJwtSecret = require('../config/jwt');
 
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET || 'tradspire-secret-key', {
+const generateToken = (user) => {
+  return jwt.sign({ id: user._id, tokenVersion: user.tokenVersion || 0 }, getJwtSecret(), {
     expiresIn: '7d'
   });
 };
+
+const profileData = (user) => ({
+  _id: user._id,
+  name: user.name,
+  email: user.email,
+  phone: user.phone || '',
+  role: user.role,
+  isVerified: user.isVerified,
+  deliveryAddress: user.deliveryAddress || null,
+  createdAt: user.createdAt,
+  updatedAt: user.updatedAt
+});
 
 const getFrontendRedirectUrl = () => {
   const baseUrl = (process.env.FRONTEND_URL || 'http://localhost:8000').replace(/\/$/, '');
@@ -43,6 +55,103 @@ exports.getUsers = async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
+};
+
+exports.getMyProfile = async (req, res) => {
+  return res.json({ success: true, user: profileData(req.user) });
+};
+
+exports.updateMyProfile = async (req, res) => {
+  const { name, email, phone } = req.body;
+  if (name === undefined && email === undefined && phone === undefined) {
+    return res.status(400).json({ message: 'Provide name, email, or phone to update' });
+  }
+  if (name !== undefined && !String(name).trim()) {
+    return res.status(400).json({ message: 'Name cannot be empty' });
+  }
+
+  let normalizedEmail;
+  let verificationToken;
+  if (email !== undefined) {
+    normalizedEmail = String(email).trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({ message: 'Provide a valid email address' });
+    }
+
+    if (normalizedEmail !== req.user.email) {
+      const existingUser = await User.findOne({ email: normalizedEmail });
+      if (existingUser) return res.status(409).json({ message: 'Email address is already in use' });
+
+      if (emailVerificationRequired()) {
+        verificationToken = crypto.randomBytes(32).toString('hex');
+        const verifyUrl = `${req.protocol}://${req.get('host')}/api/users/verify/${verificationToken}`;
+        await sendEmail({
+          email: normalizedEmail,
+          subject: 'Verify your updated Tradspire email',
+          html: `<h1>Verify your email</h1><p>Please confirm this email address:</p><a href="${verifyUrl}">${verifyUrl}</a>`
+        });
+      }
+    }
+  }
+
+  if (name !== undefined) req.user.name = String(name).trim();
+  if (phone !== undefined) req.user.phone = String(phone).trim();
+  if (normalizedEmail !== undefined && normalizedEmail !== req.user.email) {
+    req.user.email = normalizedEmail;
+    if (verificationToken) {
+      req.user.isVerified = false;
+      req.user.verificationToken = verificationToken;
+      req.user.verificationTokenExpire = Date.now() + 24 * 60 * 60 * 1000;
+    }
+  }
+  await req.user.save();
+  return res.json({
+    success: true,
+    message: verificationToken ? 'Profile updated. Verify your new email before logging in.' : 'Profile updated',
+    user: profileData(req.user)
+  });
+};
+
+exports.updateDeliveryAddress = async (req, res) => {
+  const address = req.body.deliveryAddress || req.body;
+  const allowedFields = ['recipientName', 'phone', 'street', 'city', 'region', 'postalCode', 'country', 'instructions'];
+  const currentAddress = req.user.deliveryAddress?.toObject?.() || req.user.deliveryAddress || {};
+  const nextAddress = { ...currentAddress };
+
+  for (const field of allowedFields) {
+    if (address[field] !== undefined) nextAddress[field] = String(address[field]).trim();
+  }
+
+  const requiredFields = ['recipientName', 'phone', 'street', 'city', 'country'];
+  if (requiredFields.some((field) => !nextAddress[field])) {
+    return res.status(400).json({
+      message: 'recipientName, phone, street, city, and country are required for delivery'
+    });
+  }
+
+  req.user.deliveryAddress = nextAddress;
+  await req.user.save();
+  return res.json({ success: true, user: profileData(req.user) });
+};
+
+exports.changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ message: 'Provide currentPassword and newPassword' });
+  }
+  if (String(newPassword).length < 6) {
+    return res.status(400).json({ message: 'New password must be at least 6 characters' });
+  }
+
+  const user = await User.findById(req.user._id).select('+password');
+  if (!user || !(await user.matchPassword(currentPassword))) {
+    return res.status(401).json({ message: 'Current password is incorrect' });
+  }
+
+  user.password = newPassword;
+  user.tokenVersion = (user.tokenVersion || 0) + 1;
+  await user.save();
+  return res.json({ success: true, message: 'Password changed. Please log in again.' });
 };
 
 // 2. Register user & send verification email
