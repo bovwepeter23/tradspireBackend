@@ -239,24 +239,32 @@ exports.forgotPassword = async (req, res) => {
 
     const now = new Date();
     const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const rateLimit = await User.findByIdAndUpdate(
-      user._id,
-      [{
-        $set: {
-          passwordResetEmailCount: {
-            $cond: [
-              { $eq: ['$passwordResetEmailDay', { $literal: dayStart }] },
-              { $add: [{ $ifNull: ['$passwordResetEmailCount', 0] }, 1] },
-              1
-            ]
-          },
-          passwordResetEmailDay: { $literal: dayStart }
-        }
-      }],
-      { new: true, projection: { passwordResetEmailCount: 1 } }
+    const rateLimitOptions = { new: true, projection: { passwordResetEmailCount: 1 } };
+    let rateLimit = await User.findOneAndUpdate(
+      {
+        _id: user._id,
+        passwordResetEmailDay: dayStart,
+        passwordResetEmailCount: { $lt: 3 }
+      },
+      { $inc: { passwordResetEmailCount: 1 } },
+      rateLimitOptions
     );
 
-    if (!rateLimit || rateLimit.passwordResetEmailCount > 3) {
+    if (!rateLimit) {
+      rateLimit = await User.findOneAndUpdate(
+        {
+          _id: user._id,
+          $or: [
+            { passwordResetEmailDay: { $exists: false } },
+            { passwordResetEmailDay: { $lt: dayStart } }
+          ]
+        },
+        { $set: { passwordResetEmailDay: dayStart, passwordResetEmailCount: 1 } },
+        rateLimitOptions
+      );
+    }
+
+    if (!rateLimit) {
       return res.status(200).json(genericResponse);
     }
 
