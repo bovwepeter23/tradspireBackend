@@ -26,6 +26,7 @@ router.route('/me')
   .patch(protect, updateMyProfile);
 
 router.get('/profile', protect, getMyProfile);
+router.put('/profile', protect, updateMyProfile);
 
 router.patch('/me/delivery-address', protect, updateDeliveryAddress);
 router.patch('/me/password', protect, changePassword);
