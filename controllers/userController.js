@@ -192,6 +192,21 @@ exports.loginUser = async (req, res) => {
   }
 };
 
+// @route   POST /api/users/logout
+exports.logoutUser = async (req, res) => {
+  try {
+    req.user.tokenVersion = (req.user.tokenVersion || 0) + 1;
+    await req.user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Logged out successfully. This authentication token has been revoked.'
+    });
+  } catch (err) {
+    return res.status(500).json({ message: 'Unable to log out' });
+  }
+};
+
 // 5. Request a password reset email
 // @route   POST /api/users/forgot-password
 exports.forgotPassword = async (req, res) => {
