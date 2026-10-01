@@ -13,9 +13,27 @@ const productSchema = new mongoose.Schema({
     trim: true,
     maxlength: 80
   },
+  categories: [{
+    type: String,
+    trim: true,
+    maxlength: 80
+  }],
+  availableFor: {
+    type: [{ type: String, enum: ['buy', 'rent'] }],
+    default: ['buy'],
+    validate: {
+      validator: (values) => values.length > 0,
+      message: 'Select at least one purchase option'
+    }
+  },
   price: {
     type: Number,
-    required: true,
+    required: function () { return this.availableFor.includes('buy'); },
+    min: 0
+  },
+  rentPricePerDay: {
+    type: Number,
+    required: function () { return this.availableFor.includes('rent'); },
     min: 0
   },
   origin: {
@@ -43,7 +61,12 @@ const productSchema = new mongoose.Schema({
     type: String,
     required: true,
     select: false
-  }
+  },
+  subImages: [{
+    url: { type: String, required: true },
+    alt: { type: String, trim: true, maxlength: 180 },
+    publicId: { type: String, select: false }
+  }]
 }, { timestamps: true });
 
 module.exports = mongoose.model('Product', productSchema);

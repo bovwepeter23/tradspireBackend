@@ -22,6 +22,7 @@ const dotenv = require('dotenv');
 const connectDB = require('./config/db');
 const userRoutes = require('./routes/userRoutes');
 const productRoutes = require('./routes/productRoutes');
+const carouselImageRoutes = require('./routes/carouselImageRoutes');
 
 dotenv.config();
 
@@ -47,6 +48,7 @@ app.use('/api', async (req, res, next) => {
 // Routes
 app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
+app.use('/api/carousel-images', carouselImageRoutes);
 
 // Keep API errors JSON so clients do not try to parse an HTML fallback page.
 app.use('/api', (req, res) => {

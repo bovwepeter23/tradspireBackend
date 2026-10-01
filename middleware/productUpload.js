@@ -2,7 +2,7 @@ const multer = require('multer');
 
 const uploadProductImage = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 4 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 4 * 1024 * 1024, files: 12 },
   fileFilter: (req, file, callback) => {
     if (!file.mimetype.startsWith('image/')) {
       const error = new Error('Please upload an image file');
