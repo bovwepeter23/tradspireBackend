@@ -26,6 +26,14 @@ const getPasswordResetUrl = (token) => {
   return `${baseUrl}/reset-password.html?token=${token}`;
 };
 
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+}[character]));
+
 // 1. Get all users
 // @route   GET /api/users
 exports.getUsers = async (req, res) => {
@@ -226,6 +234,29 @@ exports.forgotPassword = async (req, res) => {
       .select('+password +resetPasswordToken +resetPasswordExpire');
 
     if (!user) {
+      return res.status(200).json(genericResponse);
+    }
+
+    const now = new Date();
+    const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const rateLimit = await User.findByIdAndUpdate(
+      user._id,
+      [{
+        $set: {
+          passwordResetEmailCount: {
+            $cond: [
+              { $eq: ['$passwordResetEmailDay', { $literal: dayStart }] },
+              { $add: [{ $ifNull: ['$passwordResetEmailCount', 0] }, 1] },
+              1
+            ]
+          },
+          passwordResetEmailDay: { $literal: dayStart }
+        }
+      }],
+      { new: true, projection: { passwordResetEmailCount: 1 } }
+    );
+
+    if (!rateLimit || rateLimit.passwordResetEmailCount > 3) {
       return res.status(200).json(genericResponse);
     }
 

@@ -52,6 +52,13 @@ const userSchema = new mongoose.Schema(
     resetPasswordExpire: {
       type: Date,
       select: false
+    },
+    passwordResetEmailCount: {
+      type: Number,
+      default: 0
+    },
+    passwordResetEmailDay: {
+      type: Date
     }
   },
   {
