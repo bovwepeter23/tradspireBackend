@@ -329,7 +329,7 @@ exports.logoutUser = async (req, res) => {
 exports.forgotPassword = async (req, res) => {
   const genericResponse = {
     success: true,
-    message: 'If the email is registered, a new password will be sent shortly.'
+    message: 'If the email is registered and within the daily reset limit, a new password will be sent shortly.'
   };
 
   try {
@@ -346,6 +346,40 @@ exports.forgotPassword = async (req, res) => {
       .select('+password +resetPasswordToken +resetPasswordExpire');
 
     if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Email does not exist.'
+      });
+    }
+
+    const now = new Date();
+    const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const rateLimitOptions = { new: true, projection: { passwordResetEmailCount: 1 } };
+    let rateLimit = await User.findOneAndUpdate(
+      {
+        _id: user._id,
+        passwordResetEmailDay: dayStart,
+        passwordResetEmailCount: { $lt: 5 }
+      },
+      { $inc: { passwordResetEmailCount: 1 } },
+      rateLimitOptions
+    );
+
+    if (!rateLimit) {
+      rateLimit = await User.findOneAndUpdate(
+        {
+          _id: user._id,
+          $or: [
+            { passwordResetEmailDay: { $exists: false } },
+            { passwordResetEmailDay: { $lt: dayStart } }
+          ]
+        },
+        { $set: { passwordResetEmailDay: dayStart, passwordResetEmailCount: 1 } },
+        rateLimitOptions
+      );
+    }
+
+    if (!rateLimit) {
       return res.status(200).json(genericResponse);
     }
 
