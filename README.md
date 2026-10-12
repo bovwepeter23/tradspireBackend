@@ -34,6 +34,10 @@ Sign out and back in after promotion so the frontend receives the updated role. 
 
 Authenticated account routes require `Authorization: Bearer <token>`. Login and refresh routes do not; the refresh token is the credential for `/api/users/refresh`.
 
+## Analytics API
+
+- `GET /api/analytics/admin?from=<ISO-8601>&to=<ISO-8601>&groupBy=day|week|month` requires an admin account. The date range includes `from` and excludes `to`, with grouping in UTC (Monday-start weeks). Cancelled orders remain in `orderCount`, `statusCounts`, and `recentOrders`, but are excluded from booked-value, order-mix, rental-unit, and top-product metrics. All returned currency values use two decimal places.
+
 ## Order API
 
 - `POST /api/orders` creates an order for the signed-in user. Send `items` as an array of `{ productId, quantity, purchaseType }`; `purchaseType` is `buy` or `rent`. Rental items also require `rentalDays` (1-365). Prices and totals are calculated from the current product data on the server.
