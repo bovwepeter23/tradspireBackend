@@ -30,7 +30,9 @@ Sign out and back in after promotion so the frontend receives the updated role. 
 - `PATCH /api/users/me/delivery-address` saves the default address. Required fields are `recipientName`, `phone`, `street`, `city`, and `country`; `region`, `postalCode`, and `instructions` are optional. The address can also be passed as `deliveryAddress` in the request body.
 - `PATCH /api/users/me/password` requires `currentPassword` and `newPassword`. Changing the password invalidates existing sessions, so the user must sign in again.
 
-All account routes above require `Authorization: Bearer <token>`.
+`POST /api/users/login` returns a 15-minute access `token` and a 30-day `refreshToken` (with a 90-day maximum session lifetime). Send the refresh token as `{ "refreshToken": "..." }` to `POST /api/users/refresh` to rotate it and receive a new token pair. Replace both stored tokens after every refresh; a previously used refresh token is invalid, and reuse revokes that token family. Store refresh tokens securely on the client. `POST /api/users/logout` and password changes revoke all of that user's refresh tokens.
+
+Authenticated account routes require `Authorization: Bearer <token>`. Login and refresh routes do not; the refresh token is the credential for `/api/users/refresh`.
 
 ## Order API
 

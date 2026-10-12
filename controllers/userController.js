@@ -3,14 +3,45 @@ const jwt = require('jsonwebtoken');
 
 const User = require('../models/User');
 const RevokedToken = require('../models/RevokedToken');
+const RefreshToken = require('../models/RefreshToken');
 const sendEmail = require('../config/nodemailer');
 const getJwtSecret = require('../config/jwt');
 
+const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
+const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const REFRESH_TOKEN_FAMILY_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
 const generateToken = (user) => {
   return jwt.sign({ id: user._id, tokenVersion: user.tokenVersion || 0 }, getJwtSecret(), {
-    expiresIn: '7d'
+    expiresIn: ACCESS_TOKEN_TTL_SECONDS
   });
 };
+
+const hashRefreshToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
+
+const createRefreshToken = async (user, familyId = crypto.randomUUID()) => {
+  const now = Date.now();
+  const token = crypto.randomBytes(48).toString('base64url');
+  await RefreshToken.create({
+    user: user._id,
+    tokenHash: hashRefreshToken(token),
+    familyId,
+    tokenVersion: user.tokenVersion || 0,
+    expiresAt: new Date(now + REFRESH_TOKEN_TTL_MS),
+    familyExpiresAt: new Date(now + REFRESH_TOKEN_FAMILY_TTL_MS)
+  });
+  return token;
+};
+
+const revokeRefreshTokensForUser = (userId) => RefreshToken.updateMany(
+  { user: userId, revokedAt: null },
+  { $set: { revokedAt: new Date() } }
+);
+
+const revokeRefreshTokenFamily = (familyId) => RefreshToken.updateMany(
+  { familyId, revokedAt: null },
+  { $set: { revokedAt: new Date() } }
+);
 
 const profileData = (user) => ({
   _id: user._id,
@@ -151,6 +182,7 @@ exports.changePassword = async (req, res) => {
   user.password = newPassword;
   user.tokenVersion = (user.tokenVersion || 0) + 1;
   await user.save();
+  await revokeRefreshTokensForUser(user._id);
   return res.json({ success: true, message: 'Password changed. Please log in again.' });
 };
 
@@ -291,11 +323,14 @@ exports.loginUser = async (req, res) => {
     }
 
     const token = generateToken(user);
+    const refreshToken = await createRefreshToken(user);
 
     res.status(200).json({
       success: true,
       message: 'Logged in successfully',
       token,
+      refreshToken,
+      expiresIn: ACCESS_TOKEN_TTL_SECONDS,
       redirectUrl: getFrontendRedirectUrl(),
       user: {
         _id: user._id,
@@ -309,11 +344,82 @@ exports.loginUser = async (req, res) => {
   }
 };
 
+// @route   POST /api/users/refresh
+exports.refreshSession = async (req, res) => {
+  try {
+    const { refreshToken } = req.body || {};
+    if (typeof refreshToken !== 'string' || !refreshToken) {
+      return res.status(400).json({ message: 'Please provide a refresh token' });
+    }
+
+    const tokenHash = hashRefreshToken(refreshToken);
+    const storedToken = await RefreshToken.findOne({ tokenHash });
+    if (!storedToken) {
+      return res.status(401).json({ message: 'Invalid or expired refresh token' });
+    }
+
+    if (storedToken.revokedAt) {
+      await revokeRefreshTokenFamily(storedToken.familyId);
+      return res.status(401).json({ message: 'Refresh token reuse detected. Please log in again.' });
+    }
+
+    const now = new Date();
+    if (storedToken.expiresAt <= now || storedToken.familyExpiresAt <= now) {
+      return res.status(401).json({ message: 'Invalid or expired refresh token' });
+    }
+
+    const user = await User.findById(storedToken.user);
+    if (!user || storedToken.tokenVersion !== (user.tokenVersion || 0)) {
+      await revokeRefreshTokenFamily(storedToken.familyId);
+      return res.status(401).json({ message: 'Session has been revoked. Please log in again.' });
+    }
+
+    const nextRefreshToken = crypto.randomBytes(48).toString('base64url');
+    const nextTokenHash = hashRefreshToken(nextRefreshToken);
+    const nextToken = await RefreshToken.create({
+      user: user._id,
+      tokenHash: nextTokenHash,
+      familyId: storedToken.familyId,
+      tokenVersion: user.tokenVersion || 0,
+      expiresAt: new Date(Math.min(Date.now() + REFRESH_TOKEN_TTL_MS, storedToken.familyExpiresAt.getTime())),
+      familyExpiresAt: storedToken.familyExpiresAt
+    });
+    const claimedToken = await RefreshToken.findOneAndUpdate(
+      {
+        _id: storedToken._id,
+        revokedAt: null,
+        expiresAt: { $gt: now }
+      },
+      { $set: { revokedAt: now, replacedByHash: nextTokenHash } },
+      { new: false }
+    );
+
+    if (!claimedToken) {
+      await RefreshToken.deleteOne({ _id: nextToken._id });
+      const latestToken = await RefreshToken.findById(storedToken._id);
+      if (latestToken?.revokedAt) {
+        await revokeRefreshTokenFamily(storedToken.familyId);
+      }
+      return res.status(401).json({ message: 'Refresh token is no longer valid. Please log in again.' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      token: generateToken(user),
+      refreshToken: nextRefreshToken,
+      expiresIn: ACCESS_TOKEN_TTL_SECONDS
+    });
+  } catch (err) {
+    return res.status(500).json({ message: 'Unable to refresh session' });
+  }
+};
+
 // @route   POST /api/users/logout
 exports.logoutUser = async (req, res) => {
   try {
     req.user.tokenVersion = (req.user.tokenVersion || 0) + 1;
     await req.user.save();
+    await revokeRefreshTokensForUser(req.user._id);
 
     return res.status(200).json({
       success: true,
@@ -386,8 +492,10 @@ exports.forgotPassword = async (req, res) => {
     const previousPasswordHash = user.password;
     const previousResetPasswordToken = user.resetPasswordToken;
     const previousResetPasswordExpire = user.resetPasswordExpire;
+    const previousTokenVersion = user.tokenVersion || 0;
     const newPassword = crypto.randomBytes(18).toString('base64url');
     user.password = newPassword;
+    user.tokenVersion = previousTokenVersion + 1;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
     await user.save();
@@ -423,7 +531,7 @@ exports.forgotPassword = async (req, res) => {
       });
     } catch (emailError) {
       const restoreUpdate = {
-        $set: { password: previousPasswordHash },
+        $set: { password: previousPasswordHash, tokenVersion: previousTokenVersion },
         $unset: {}
       };
 
@@ -440,7 +548,10 @@ exports.forgotPassword = async (req, res) => {
       }
 
       try {
-        await User.updateOne({ _id: user._id, password: user.password }, restoreUpdate);
+        await User.updateOne(
+          { _id: user._id, password: user.password, tokenVersion: user.tokenVersion },
+          restoreUpdate
+        );
       } catch (rollbackError) {
         console.error('Password reset rollback failed:', rollbackError.message);
         return res.status(500).json({
@@ -459,6 +570,7 @@ exports.forgotPassword = async (req, res) => {
       });
     }
 
+    await revokeRefreshTokensForUser(user._id);
     return res.status(200).json(genericResponse);
   } catch (err) {
     console.error('Password reset request failed:', err.message);
@@ -489,9 +601,11 @@ exports.resetPassword = async (req, res) => {
     }
 
     user.password = password;
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
     await user.save();
+    await revokeRefreshTokensForUser(user._id);
 
     return res.status(200).json({ success: true, message: 'Password reset successfully' });
   } catch (err) {

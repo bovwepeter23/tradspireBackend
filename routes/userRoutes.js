@@ -9,6 +9,7 @@ const {
   createUser,
   verifyEmail,
   loginUser,
+  refreshSession,
   logoutUser,
   forgotPassword,
   resetPassword
@@ -35,6 +36,7 @@ router.put('/change-password', protect, changePassword);
 
 // @route   POST /api/users/login
 router.post('/login', loginUser);
+router.post('/refresh', refreshSession);
 
 // @route   POST /api/users/logout
 router.post('/logout', protect, logoutUser);
