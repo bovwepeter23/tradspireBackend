@@ -48,3 +48,4 @@ router.post('/reset-password/:token', resetPassword);
 router.get('/verify/:token', verifyEmail);
 
 module.exports = router;
+
