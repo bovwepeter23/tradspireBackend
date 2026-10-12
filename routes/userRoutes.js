@@ -31,6 +31,7 @@ router.put('/profile', protect, updateMyProfile);
 router.patch('/me/delivery-address', protect, updateDeliveryAddress);
 router.patch('/me/password', protect, changePassword);
 router.patch('/change-password', protect, changePassword);
+router.put('/change-password', protect, changePassword);
 
 // @route   POST /api/users/login
 router.post('/login', loginUser);
