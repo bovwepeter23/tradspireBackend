@@ -41,7 +41,7 @@ test('updates and returns delivery address through the profile endpoint', async 
   assert.deepEqual(profileResponse.body.user.deliveryAddress, address);
 });
 
-test('accepts delivery addresses without country when required fields are present', async () => {
+test('accepts delivery addresses without country and supports apartment and delivery instructions aliases', async () => {
   const user = {
     _id: '65a000000000000000000001',
     name: 'Buyer',
@@ -50,10 +50,12 @@ test('accepts delivery addresses without country when required fields are presen
     save: async () => { user.saved = true; }
   };
   const address = {
-    recipientName: 'Buyer',
+    name: 'Buyer',
     phone: '123',
     street: '1 Main St',
-    city: 'Town'
+    city: 'Town',
+    apartment: 'Apt 5B',
+    deliveryInstructions: 'Ring the bell'
   };
   const res = response();
 
@@ -61,7 +63,14 @@ test('accepts delivery addresses without country when required fields are presen
 
   assert.equal(res.statusCode, 200);
   assert.equal(user.saved, true);
-  assert.deepEqual(user.deliveryAddress, address);
+  assert.deepEqual(user.deliveryAddress, {
+    recipientName: 'Buyer',
+    phone: '123',
+    street: '1 Main St',
+    city: 'Town',
+    apartment: 'Apt 5B',
+    instructions: 'Ring the bell'
+  });
 });
 
 test('rejects incomplete delivery addresses without saving profile changes', async () => {

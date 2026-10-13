@@ -7,7 +7,7 @@ const { validateOrderItems } = require('./cartController');
 const orderStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
 const terminalStatuses = ['delivered', 'cancelled'];
 const cancellationStatuses = ['pending', 'confirmed', 'processing'];
-const addressFields = ['recipientName', 'phone', 'street', 'city', 'region', 'postalCode', 'country', 'instructions'];
+const addressFields = ['recipientName', 'phone', 'street', 'city', 'region', 'postalCode', 'country', 'instructions', 'apartment'];
 
 const normalizeAddress = (address) => {
   if (!address || typeof address !== 'object' || Array.isArray(address)) return null;
@@ -19,10 +19,27 @@ const normalizeAddress = (address) => {
     region: 100,
     postalCode: 30,
     country: 100,
-    instructions: 500
+    instructions: 500,
+    apartment: 50
   };
   const normalized = {};
-  for (const field of addressFields) {
+  const recipientName = address.recipientName ?? address.name ?? '';
+  if (typeof recipientName !== 'string' || recipientName.length > limits.recipientName) return null;
+  normalized.recipientName = recipientName.trim();
+
+  const instructions = address.instructions ?? address.deliveryInstructions ?? '';
+  if (instructions !== '') {
+    if (typeof instructions !== 'string' || instructions.length > limits.instructions) return null;
+    normalized.instructions = instructions.trim();
+  }
+
+  const apartment = address.apartment ?? address.unitNumber ?? '';
+  if (apartment !== '') {
+    if (typeof apartment !== 'string' || apartment.length > limits.apartment) return null;
+    normalized.apartment = apartment.trim();
+  }
+
+  for (const field of addressFields.filter((field) => !['recipientName', 'instructions', 'apartment'].includes(field))) {
     const value = address[field] ?? '';
     if (typeof value !== 'string' || value.length > limits[field]) return null;
     normalized[field] = value.trim();

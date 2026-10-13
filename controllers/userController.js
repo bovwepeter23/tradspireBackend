@@ -56,11 +56,21 @@ const profileData = (user) => ({
 });
 
 const mergeDeliveryAddress = (currentAddress, address) => {
-  const allowedFields = ['recipientName', 'phone', 'street', 'city', 'region', 'postalCode', 'country', 'instructions'];
+  const allowedFields = ['recipientName', 'phone', 'street', 'city', 'region', 'postalCode', 'country', 'instructions', 'apartment'];
   const current = currentAddress?.toObject?.() || currentAddress || {};
   const nextAddress = { ...current };
 
+  const providedName = address.recipientName ?? address.name;
+  if (providedName !== undefined) nextAddress.recipientName = String(providedName).trim();
+
+  const providedInstructions = address.instructions ?? address.deliveryInstructions;
+  if (providedInstructions !== undefined) nextAddress.instructions = String(providedInstructions).trim();
+
+  const providedApartment = address.apartment ?? address.unitNumber;
+  if (providedApartment !== undefined) nextAddress.apartment = String(providedApartment).trim();
+
   for (const field of allowedFields) {
+    if (['recipientName', 'instructions', 'apartment'].includes(field)) continue;
     if (address[field] !== undefined) nextAddress[field] = String(address[field] ?? '').trim();
   }
 
@@ -120,7 +130,7 @@ exports.updateMyProfile = async (req, res) => {
     : mergeDeliveryAddress(req.user.deliveryAddress, deliveryAddress || {});
   if (deliveryAddress !== undefined && !nextAddress) {
     return res.status(400).json({
-      message: 'recipientName, phone, street, and city are required for delivery'
+      message: 'name/recipientName, phone, street, and city are required for delivery'
     });
   }
 
@@ -172,7 +182,7 @@ exports.updateDeliveryAddress = async (req, res) => {
   const nextAddress = mergeDeliveryAddress(req.user.deliveryAddress, address);
   if (!nextAddress) {
     return res.status(400).json({
-      message: 'recipientName, phone, street, and city are required for delivery'
+      message: 'name/recipientName, phone, street, and city are required for delivery'
     });
   }
 
