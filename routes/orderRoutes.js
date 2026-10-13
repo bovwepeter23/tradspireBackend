@@ -17,6 +17,7 @@ router.get('/admin', protect, adminOnly, getAllOrders);
 router.get('/', protect, adminOnly, getAllOrders);
 router.patch('/:id/cancel', protect, cancelOrder);
 router.patch('/:id/status', protect, adminOnly, updateOrderStatus);
+router.put('/:id/status', protect, adminOnly, updateOrderStatus);
 router.get('/:id', protect, getOrder);
 
 module.exports = router;
