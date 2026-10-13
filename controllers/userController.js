@@ -55,6 +55,20 @@ const profileData = (user) => ({
   updatedAt: user.updatedAt
 });
 
+const mergeDeliveryAddress = (currentAddress, address) => {
+  const allowedFields = ['recipientName', 'phone', 'street', 'city', 'region', 'postalCode', 'country', 'instructions'];
+  const current = currentAddress?.toObject?.() || currentAddress || {};
+  const nextAddress = { ...current };
+
+  for (const field of allowedFields) {
+    if (address[field] !== undefined) nextAddress[field] = String(address[field] ?? '').trim();
+  }
+
+  const requiredFields = ['recipientName', 'phone', 'street', 'city', 'country'];
+  if (requiredFields.some((field) => !nextAddress[field])) return null;
+  return nextAddress;
+};
+
 const getFrontendRedirectUrl = () => {
   const baseUrl = (process.env.FRONTEND_URL || 'http://localhost:8000').replace(/\/$/, '');
   return `${baseUrl}/public/html/homepage.html`;
@@ -93,12 +107,21 @@ exports.getMyProfile = async (req, res) => {
 };
 
 exports.updateMyProfile = async (req, res) => {
-  const { name, email, phone } = req.body;
-  if (name === undefined && email === undefined && phone === undefined) {
-    return res.status(400).json({ message: 'Provide name, email, or phone to update' });
+  const { name, email, phone, deliveryAddress } = req.body || {};
+  if (name === undefined && email === undefined && phone === undefined && deliveryAddress === undefined) {
+    return res.status(400).json({ message: 'Provide name, email, phone, or deliveryAddress to update' });
   }
   if (name !== undefined && !String(name).trim()) {
     return res.status(400).json({ message: 'Name cannot be empty' });
+  }
+
+  const nextAddress = deliveryAddress === undefined
+    ? undefined
+    : mergeDeliveryAddress(req.user.deliveryAddress, deliveryAddress || {});
+  if (deliveryAddress !== undefined && !nextAddress) {
+    return res.status(400).json({
+      message: 'recipientName, phone, street, city, and country are required for delivery'
+    });
   }
 
   let normalizedEmail;
@@ -135,6 +158,7 @@ exports.updateMyProfile = async (req, res) => {
       req.user.verificationTokenExpire = Date.now() + 24 * 60 * 60 * 1000;
     }
   }
+  if (nextAddress) req.user.deliveryAddress = nextAddress;
   await req.user.save();
   return res.json({
     success: true,
@@ -145,16 +169,8 @@ exports.updateMyProfile = async (req, res) => {
 
 exports.updateDeliveryAddress = async (req, res) => {
   const address = req.body.deliveryAddress || req.body;
-  const allowedFields = ['recipientName', 'phone', 'street', 'city', 'region', 'postalCode', 'country', 'instructions'];
-  const currentAddress = req.user.deliveryAddress?.toObject?.() || req.user.deliveryAddress || {};
-  const nextAddress = { ...currentAddress };
-
-  for (const field of allowedFields) {
-    if (address[field] !== undefined) nextAddress[field] = String(address[field]).trim();
-  }
-
-  const requiredFields = ['recipientName', 'phone', 'street', 'city', 'country'];
-  if (requiredFields.some((field) => !nextAddress[field])) {
+  const nextAddress = mergeDeliveryAddress(req.user.deliveryAddress, address);
+  if (!nextAddress) {
     return res.status(400).json({
       message: 'recipientName, phone, street, city, and country are required for delivery'
     });
