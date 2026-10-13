@@ -64,7 +64,7 @@ const mergeDeliveryAddress = (currentAddress, address) => {
     if (address[field] !== undefined) nextAddress[field] = String(address[field] ?? '').trim();
   }
 
-  const requiredFields = ['recipientName', 'phone', 'street', 'city', 'country'];
+  const requiredFields = ['recipientName', 'phone', 'street', 'city'];
   if (requiredFields.some((field) => !nextAddress[field])) return null;
   return nextAddress;
 };
@@ -120,7 +120,7 @@ exports.updateMyProfile = async (req, res) => {
     : mergeDeliveryAddress(req.user.deliveryAddress, deliveryAddress || {});
   if (deliveryAddress !== undefined && !nextAddress) {
     return res.status(400).json({
-      message: 'recipientName, phone, street, city, and country are required for delivery'
+      message: 'recipientName, phone, street, and city are required for delivery'
     });
   }
 
@@ -172,7 +172,7 @@ exports.updateDeliveryAddress = async (req, res) => {
   const nextAddress = mergeDeliveryAddress(req.user.deliveryAddress, address);
   if (!nextAddress) {
     return res.status(400).json({
-      message: 'recipientName, phone, street, city, and country are required for delivery'
+      message: 'recipientName, phone, street, and city are required for delivery'
     });
   }
 

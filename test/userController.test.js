@@ -41,6 +41,29 @@ test('updates and returns delivery address through the profile endpoint', async 
   assert.deepEqual(profileResponse.body.user.deliveryAddress, address);
 });
 
+test('accepts delivery addresses without country when required fields are present', async () => {
+  const user = {
+    _id: '65a000000000000000000001',
+    name: 'Buyer',
+    email: 'buyer@example.com',
+    deliveryAddress: null,
+    save: async () => { user.saved = true; }
+  };
+  const address = {
+    recipientName: 'Buyer',
+    phone: '123',
+    street: '1 Main St',
+    city: 'Town'
+  };
+  const res = response();
+
+  await userController.updateMyProfile({ user, body: { deliveryAddress: address } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(user.saved, true);
+  assert.deepEqual(user.deliveryAddress, address);
+});
+
 test('rejects incomplete delivery addresses without saving profile changes', async () => {
   let saved = false;
   const user = {

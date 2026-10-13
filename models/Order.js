@@ -7,7 +7,7 @@ const deliveryAddressSchema = new mongoose.Schema({
   city: { type: String, required: true, trim: true },
   region: { type: String, trim: true, default: '' },
   postalCode: { type: String, trim: true, default: '' },
-  country: { type: String, required: true, trim: true },
+  country: { type: String, trim: true, default: '' },
   instructions: { type: String, trim: true, default: '' }
 }, { _id: false });
 

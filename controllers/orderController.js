@@ -27,7 +27,7 @@ const normalizeAddress = (address) => {
     if (typeof value !== 'string' || value.length > limits[field]) return null;
     normalized[field] = value.trim();
   }
-  if (['recipientName', 'phone', 'street', 'city', 'country'].some((field) => !normalized[field])) return null;
+  if (['recipientName', 'phone', 'street', 'city'].some((field) => !normalized[field])) return null;
   return normalized;
 };
 
