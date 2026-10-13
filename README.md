@@ -40,7 +40,8 @@ Authenticated account routes require `Authorization: Bearer <token>`. Login and 
 
 ## Order API
 
-- `POST /api/orders` creates an order for the signed-in user. Send `items` as an array of `{ productId, quantity, purchaseType }`; `purchaseType` is `buy` or `rent`. Rental items also require `rentalDays` (1-365). Prices and totals are calculated from the current product data on the server.
+- `GET /api/cart` returns the signed-in user's persisted cart and creates an empty cart when needed. `POST /api/cart/items` adds or merges `{ productId, quantity, purchaseType, rentalDays }` (quantity 1-99; rentals require rentalDays 1-365). `PATCH /api/cart/items/:cartItemId` changes quantity, and `DELETE /api/cart/items/:cartItemId` removes an item. All cart routes require authentication; displayed prices always use current product data.
+- `POST /api/orders` creates an order for the signed-in user from their persisted cart. Send `items` as an array of `{ productId, quantity, purchaseType, rentalDays }` matching the cart; `purchaseType` is `buy` or `rent`. Rental items require `rentalDays` (1-365). Prices and totals are calculated from the current product data on the server, and the cart is cleared only after successful order creation.
 - Pass a `deliveryAddress` object in the order request or use the user's saved default address. Orders store a snapshot of the address and item names/images/prices at checkout.
 - `GET /api/orders/mine` lists the signed-in user's orders. `GET /api/orders/:id` returns an order to its owner or an admin.
 - `PATCH /api/orders/:id/cancel` lets the order owner cancel an order while it is `pending`, `confirmed`, or `processing`. The optional request field `reason` records why.
