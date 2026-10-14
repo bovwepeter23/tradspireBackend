@@ -1,23 +1,46 @@
 const mongoose = require('mongoose');
 const Product = require('../models/Product');
+const Category = require('../models/Category');
 const { uploadProductImage, deleteProductImage } = require('../config/cloudinary');
 
-const publicProduct = (product) => ({
-  _id: product._id,
-  name: product.name,
-  category: product.category,
-  categories: product.categories?.length ? product.categories : [product.category],
-  availableFor: product.availableFor?.length ? product.availableFor : ['buy'],
-  price: product.price,
-  rentPricePerDay: product.rentPricePerDay,
-  origin: product.origin,
-  description: product.description,
-  image: product.image,
-  imageAlt: product.imageAlt,
-  subImages: (product.subImages || []).map(({ url, alt }) => ({ url, alt })),
-  createdAt: product.createdAt,
-  updatedAt: product.updatedAt
-});
+const publicProduct = (product, assignedMainCategory, assignedSubCategory) => {
+  const mainCategory = product.mainCategoryId?.name ? product.mainCategoryId : assignedMainCategory;
+  const subCategory = product.subCategoryId?.name ? product.subCategoryId : assignedSubCategory;
+  const mainCategoryId = product.mainCategoryId?._id || product.mainCategoryId || mainCategory?._id;
+  const subCategoryId = product.subCategoryId?._id || product.subCategoryId || subCategory?._id;
+  return {
+    _id: product._id,
+    name: product.name,
+    category: product.category,
+    categories: product.categories?.length ? product.categories : [product.category],
+    mainCategoryId: mainCategoryId ? String(mainCategoryId) : null,
+    subCategoryId: subCategoryId ? String(subCategoryId) : null,
+    mainCategoryName: mainCategory?.name || null,
+    subCategoryName: subCategory?.name || null,
+    mainCategory: mainCategory?.name ? {
+      _id: String(mainCategory._id),
+      id: String(mainCategory._id),
+      name: mainCategory.name,
+      slug: mainCategory.slug
+    } : null,
+    subCategory: subCategory?.name ? {
+      _id: String(subCategory._id),
+      id: String(subCategory._id),
+      name: subCategory.name,
+      slug: subCategory.slug
+    } : null,
+    availableFor: product.availableFor?.length ? product.availableFor : ['buy'],
+    price: product.price,
+    rentPricePerDay: product.rentPricePerDay,
+    origin: product.origin,
+    description: product.description,
+    image: product.image,
+    imageAlt: product.imageAlt,
+    subImages: (product.subImages || []).map(({ url, alt }) => ({ url, alt })),
+    createdAt: product.createdAt,
+    updatedAt: product.updatedAt
+  };
+};
 
 const parseList = (value) => {
   if (Array.isArray(value)) return value;
@@ -31,10 +54,12 @@ const parseList = (value) => {
   return value.split(',');
 };
 
-const productFields = (body, existingProduct) => {
+const productFields = (body, existingProduct, mainCategory, subCategory) => {
   const has = (field) => Object.prototype.hasOwnProperty.call(body, field);
   const categories = (has('categories') ? parseList(body.categories) :
-    has('category') ? [body.category] : existingProduct?.categories?.length ? existingProduct.categories : [existingProduct?.category])
+    has('category') ? [body.category] :
+      existingProduct?.categories?.length ? existingProduct.categories :
+        existingProduct?.category ? [existingProduct.category] : [mainCategory.name])
     .map((category) => String(category || '').trim())
     .filter(Boolean);
   const availableFor = (has('availableFor') ? parseList(body.availableFor) : existingProduct?.availableFor || ['buy'])
@@ -70,6 +95,8 @@ const productFields = (body, existingProduct) => {
     name,
     category: categories[0],
     categories,
+    mainCategoryId: mainCategory._id,
+    subCategoryId: subCategory?._id || null,
     availableFor: uniqueOptions,
     price: uniqueOptions.includes('buy') ? price : undefined,
     rentPricePerDay: uniqueOptions.includes('rent') ? rentPricePerDay : undefined,
@@ -78,6 +105,36 @@ const productFields = (body, existingProduct) => {
     imageAlt: String(has('imageAlt') ? body.imageAlt : existingProduct?.imageAlt || name).trim()
   };
 };
+
+const getCategoryAssignment = async (body, existingProduct) => {
+  const has = (field) => Object.prototype.hasOwnProperty.call(body, field);
+  const mainCategoryId = has('mainCategoryId') ? String(body.mainCategoryId || '').trim() :
+    String(existingProduct?.mainCategoryId?._id || existingProduct?.mainCategoryId || '').trim();
+  const rawSubCategoryId = has('subCategoryId') ? body.subCategoryId :
+    existingProduct?.subCategoryId?._id || existingProduct?.subCategoryId;
+  const subCategoryId = rawSubCategoryId == null || rawSubCategoryId === '' ?
+    '' : String(rawSubCategoryId).trim();
+
+  if (!mainCategoryId || !mongoose.isValidObjectId(mainCategoryId)) {
+    return { error: 'A valid mainCategoryId is required' };
+  }
+  if (subCategoryId && !mongoose.isValidObjectId(subCategoryId)) {
+    return { error: 'subCategoryId must be a valid category ID or null' };
+  }
+
+  const mainCategory = await Category.findById(mainCategoryId);
+  if (!mainCategory) return { error: 'Main category not found', status: 404 };
+  if (mainCategory.parentId) return { error: 'mainCategoryId must refer to a main category' };
+
+  const subCategory = subCategoryId ? await Category.findById(subCategoryId) : null;
+  if (subCategoryId && !subCategory) return { error: 'Subcategory not found', status: 404 };
+  if (subCategory && String(subCategory.parentId) !== String(mainCategory._id)) {
+    return { error: 'subCategoryId must belong to the selected mainCategoryId' };
+  }
+  return { mainCategory, subCategory };
+};
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const requestImages = (req) => {
   const files = req.files || {};
@@ -97,21 +154,80 @@ const removeUploadedImages = async (images) => {
 exports.getProducts = async (req, res) => {
   const requestedLimit = Number.parseInt(req.query.limit, 10);
   const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 100;
-  const products = await Product.find().sort({ createdAt: -1 }).limit(limit);
-  res.json({ success: true, products: products.map(publicProduct) });
+  const requestedPage = Number.parseInt(req.query.page, 10);
+  const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const filter = {};
+  let mainCategory;
+  let subCategory;
+
+  if (req.query.mainCategoryId) {
+    if (!mongoose.isValidObjectId(req.query.mainCategoryId)) {
+      return res.status(400).json({ message: 'mainCategoryId must be a valid category ID' });
+    }
+    mainCategory = await Category.findById(req.query.mainCategoryId);
+    if (!mainCategory) return res.status(404).json({ message: 'Main category not found' });
+    if (mainCategory.parentId) return res.status(400).json({ message: 'mainCategoryId must refer to a main category' });
+    filter.mainCategoryId = mainCategory._id;
+  }
+  if (req.query.subCategoryId) {
+    if (!mongoose.isValidObjectId(req.query.subCategoryId)) {
+      return res.status(400).json({ message: 'subCategoryId must be a valid category ID' });
+    }
+    subCategory = await Category.findById(req.query.subCategoryId);
+    if (!subCategory) return res.status(404).json({ message: 'Subcategory not found' });
+    if (!subCategory.parentId) return res.status(400).json({ message: 'subCategoryId must refer to a subcategory' });
+    if (mainCategory && String(subCategory.parentId) !== String(mainCategory._id)) {
+      return res.status(400).json({ message: 'subCategoryId must belong to mainCategoryId' });
+    }
+    filter.subCategoryId = subCategory._id;
+  }
+  if (req.query.search && String(req.query.search).trim()) {
+    const search = new RegExp(escapeRegex(String(req.query.search).trim()), 'i');
+    const matchingCategories = await Category.find({ name: search });
+    const mainCategoryIds = matchingCategories.filter((category) => !category.parentId).map(({ _id }) => _id);
+    const subCategoryIds = matchingCategories.filter((category) => category.parentId).map(({ _id }) => _id);
+    filter.$and = [
+      ...(filter.$and || []),
+      { $or: [
+        { name: search },
+        ...(mainCategoryIds.length ? [{ mainCategoryId: { $in: mainCategoryIds } }] : []),
+        ...(subCategoryIds.length ? [{ subCategoryId: { $in: subCategoryIds } }] : [])
+      ] }
+    ];
+  }
+
+  let productsQuery = Product.find(filter)
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .populate('mainCategoryId', 'name slug')
+    .populate('subCategoryId', 'name slug');
+  const [products, total] = await Promise.all([
+    productsQuery,
+    Product.countDocuments(filter)
+  ]);
+  return res.json({
+    success: true,
+    products: products.map(publicProduct),
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+  });
 };
 
 exports.getProduct = async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) {
     return res.status(404).json({ message: 'Product not found' });
   }
-  const product = await Product.findById(req.params.id);
+  const product = await Product.findById(req.params.id)
+    .populate('mainCategoryId', 'name slug')
+    .populate('subCategoryId', 'name slug');
   if (!product) return res.status(404).json({ message: 'Product not found' });
   return res.json({ success: true, product: publicProduct(product) });
 };
 
 exports.createProduct = async (req, res) => {
-  const fields = productFields(req.body);
+  const assignment = await getCategoryAssignment(req.body);
+  if (assignment.error) return res.status(assignment.status || 400).json({ message: assignment.error });
+  const fields = productFields(req.body, undefined, assignment.mainCategory, assignment.subCategory);
   if (fields.error) return res.status(400).json({ message: fields.error });
   const images = requestImages(req);
   if (images.error) return res.status(400).json({ message: images.error });
@@ -131,7 +247,12 @@ exports.createProduct = async (req, res) => {
         alt: `${fields.name} image ${index + 1}`
       }))
     });
-    return res.status(201).json({ success: true, product: publicProduct(product) });
+    product.mainCategoryId = assignment.mainCategory;
+    product.subCategoryId = assignment.subCategory;
+    return res.status(201).json({
+      success: true,
+      product: publicProduct(product, assignment.mainCategory, assignment.subCategory)
+    });
   } catch (error) {
     await removeUploadedImages(uploadedImages);
     throw error;
@@ -146,7 +267,9 @@ exports.updateProduct = async (req, res) => {
   const product = await Product.findById(req.params.id).select('+imagePublicId +subImages.publicId');
   if (!product) return res.status(404).json({ message: 'Product not found' });
 
-  const fields = productFields(req.body, product);
+  const assignment = await getCategoryAssignment(req.body, product);
+  if (assignment.error) return res.status(assignment.status || 400).json({ message: assignment.error });
+  const fields = productFields(req.body, product, assignment.mainCategory, assignment.subCategory);
   if (fields.error) return res.status(400).json({ message: fields.error });
 
   const images = requestImages(req);
@@ -180,6 +303,9 @@ exports.updateProduct = async (req, res) => {
     throw error;
   }
 
+  product.mainCategoryId = assignment.mainCategory;
+  product.subCategoryId = assignment.subCategory;
+
   const oldImagesToDelete = [
     ...(images.mainImage && oldImagePublicId ? [oldImagePublicId] : []),
     ...(replaceSubImages ? oldSubImages.map((image) => image.publicId).filter(Boolean) : [])
@@ -190,7 +316,10 @@ exports.updateProduct = async (req, res) => {
     });
   }
 
-  return res.json({ success: true, product: publicProduct(product) });
+  return res.json({
+    success: true,
+    product: publicProduct(product, assignment.mainCategory, assignment.subCategory)
+  });
 };
 
 exports.deleteProduct = async (req, res) => {

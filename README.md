@@ -51,9 +51,16 @@ Authenticated account routes require `Authorization: Bearer <token>`. Login and 
 
 - `GET /api/products` and `GET /api/products/:id` are public catalog reads.
 - `POST /api/products`, `PUT /api/products/:id`, and `DELETE /api/products/:id` require `Authorization: Bearer <token>` and an admin account.
-- Create and image-changing updates use `multipart/form-data`; metadata-only updates may use JSON. Product fields include `name`, `categories`, `availableFor`, `price`, `rentPricePerDay`, `origin`, `description`, and `imageAlt`. `categories` accepts a JSON array, comma-separated values, or repeated form fields. `availableFor` accepts `buy`, `rent`, `both`, or a JSON array such as `["buy","rent"]`. `price` is required when `buy` is selected; `rentPricePerDay` is required when `rent` is selected. The legacy `category` field is retained and maps to the first category.
+- Create and image-changing updates use `multipart/form-data`; metadata-only updates may use JSON. Product fields include required `mainCategoryId`, optional `subCategoryId`, `name`, `categories`, `availableFor`, `price`, `rentPricePerDay`, `origin`, `description`, and `imageAlt`. A subcategory must belong to the selected main category. `categories` accepts a JSON array, comma-separated values, or repeated form fields. `availableFor` accepts `buy`, `rent`, `both`, or a JSON array such as `["buy","rent"]`. `price` is required when `buy` is selected; `rentPricePerDay` is required when `rent` is selected. The legacy `category` field is retained and maps to the first category.
+- Product reads accept `mainCategoryId`, `subCategoryId`, `search`, `page`, and `limit`. Main-category filtering includes products assigned to its subcategories; search is case-insensitive over product, main-category, and subcategory names. Responses include category IDs, populated category objects/names, and pagination metadata.
 - New products require a main image. Upload it in `mainImage` (or legacy `image`) and optionally attach up to 10 repeated `subImages` fields. Each file can be up to 4 MB. Updates can replace the main image by sending a new `mainImage`; sending one or more `subImages` replaces the sub-image list. Set `clearSubImages=true` to remove all sub-images without uploading replacements. Images are stored server-side in Cloudinary.
 - Product responses preserve the legacy `category`, `price`, and `image` fields and also include `categories`, `availableFor`, `rentPricePerDay`, and `subImages`.
+
+## Category API
+
+- `GET /api/categories` is public and returns main categories and subcategories ordered by `sortOrder` and then name. Each item includes `id`, `name`, `slug`, `parentId`, and `sortOrder`.
+- `POST /api/categories` with `{ "name": "Example", "parentId": null }`, `PUT /api/categories/:id`, and `DELETE /api/categories/:id` require an authenticated admin. Category names are trimmed and unique without regard to case among siblings. Categories can have only one subcategory level; deleting a category with children or assigned products returns `409`.
+- The five starter categories and their subcategories are seeded once, in the configured order. Administrators can subsequently rename, reparent, create, and delete categories; completed seed data is not re-applied on each startup. Existing product category strings are preserved. On first initialization, only an exact, unambiguous legacy category-name match is migrated to category IDs; ambiguous and unmapped products remain unchanged and are reported in the server log.
 
 ## Carousel Image API
 

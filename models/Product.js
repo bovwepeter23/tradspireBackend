@@ -18,6 +18,16 @@ const productSchema = new mongoose.Schema({
     trim: true,
     maxlength: 80
   }],
+  mainCategoryId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Category',
+    required: true
+  },
+  subCategoryId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Category',
+    default: null
+  },
   availableFor: {
     type: [{ type: String, enum: ['buy', 'rent'] }],
     default: ['buy'],
@@ -68,5 +78,9 @@ const productSchema = new mongoose.Schema({
     publicId: { type: String, select: false }
   }]
 }, { timestamps: true });
+
+productSchema.index({ mainCategoryId: 1 });
+productSchema.index({ subCategoryId: 1 });
+productSchema.index({ name: 1 });
 
 module.exports = mongoose.model('Product', productSchema);

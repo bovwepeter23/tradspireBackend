@@ -26,6 +26,7 @@ const carouselImageRoutes = require('./routes/carouselImageRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const cartRoutes = require('./routes/cartRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
+const categoryRoutes = require('./routes/categoryRoutes');
 
 dotenv.config();
 
@@ -51,6 +52,7 @@ app.use('/api', async (req, res, next) => {
 // Routes
 app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
+app.use('/api/categories', categoryRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/analytics', analyticsRoutes);
