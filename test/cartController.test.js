@@ -205,6 +205,8 @@ test('creates orders from stored cart prices and clears the cart after success',
   assert.equal(res.statusCode, 201);
   assert.equal(res.body.order.items[0].unitPrice, 1000);
   assert.equal(res.body.order.total, 2000);
+  assert.equal(res.body.order.customerPhone, '123');
+  assert.equal(res.body.order.deliveryAddress.phone, '123');
   assert.equal(res.body.order.savedForTest, true);
   assert.equal(cart.items.length, 0);
   assert.equal(cart.saved, true);

@@ -63,6 +63,11 @@ const normalizeAddress = (address) => {
 };
 
 const canAccessOrder = (order, user) => user.role === 'admin' || order.user.toString() === user._id.toString();
+const orderResponse = (order) => {
+  const serialized = typeof order.toObject === 'function' ? order.toObject() : order;
+  const customerPhone = serialized.customerPhone || serialized.deliveryAddress?.phone || '';
+  return { ...serialized, customerPhone, phone: customerPhone };
+};
 const isUnsupportedTransactionError = (error) =>
   error.code === 20 || error.codeName === 'IllegalOperation' ||
   /transactions are not supported|transaction numbers are only allowed/i.test(error.message);
@@ -72,7 +77,11 @@ exports.createOrder = async (req, res) => {
   const itemsError = validateOrderItems(items);
   if (itemsError) return res.status(400).json({ message: itemsError });
 
-  const address = normalizeAddress(deliveryAddress || shippingAddress || req.user.deliveryAddress);
+  const requestedAddress = deliveryAddress || shippingAddress || req.user.deliveryAddress || {};
+  const address = normalizeAddress({
+    ...requestedAddress,
+    phone: requestedAddress.phone || req.user.phone || req.user.deliveryAddress?.phone
+  });
   if (!address) {
     return res.status(400).json({ message: 'A complete delivery address is required' });
   }
@@ -137,6 +146,7 @@ exports.createOrder = async (req, res) => {
       user: req.user._id,
       items: orderItems,
       deliveryAddress: address,
+      customerPhone: address.phone,
       subtotal,
       total: subtotal
     });
@@ -184,11 +194,11 @@ exports.createOrder = async (req, res) => {
 
 exports.getMyOrders = async (req, res) => {
   const orders = await Order.find({ user: req.user._id }).sort({ createdAt: -1 });
-  return res.json({ success: true, orders });
+  return res.json({ success: true, orders: orders.map(orderResponse) });
 };
 
 exports.getAllOrders = async (req, res) => {
-  const filter = {};
+  const filter = req.user.role === 'admin' ? {} : { user: req.user._id };
   if (req.query.purchaseType) {
     if (!['buy', 'rent'].includes(req.query.purchaseType)) {
       return res.status(400).json({ message: 'purchaseType must be buy or rent' });
@@ -202,14 +212,14 @@ exports.getAllOrders = async (req, res) => {
     filter.status = req.query.status;
   }
   const orders = await Order.find(filter).sort({ createdAt: -1 });
-  return res.json({ success: true, orders });
+  return res.json({ success: true, orders: orders.map(orderResponse) });
 };
 
 exports.getOrder = async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ message: 'Order not found' });
   const order = await Order.findById(req.params.id);
   if (!order || !canAccessOrder(order, req.user)) return res.status(404).json({ message: 'Order not found' });
-  return res.json({ success: true, order });
+  return res.json({ success: true, order: orderResponse(order) });
 };
 
 exports.cancelOrder = async (req, res) => {

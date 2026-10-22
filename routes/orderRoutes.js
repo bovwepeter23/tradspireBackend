@@ -15,7 +15,7 @@ router.post('/', protect, createOrder);
 router.post('/rent', protect, createOrder);
 router.get('/mine', protect, getMyOrders);
 router.get('/admin', protect, adminOnly, getAllOrders);
-router.get('/', protect, adminOnly, getAllOrders);
+router.get('/', protect, getAllOrders);
 router.patch('/:id/cancel', protect, cancelOrder);
 router.put('/:id/cancel', protect, cancelOrder);
 router.patch('/:id/status', protect, adminOnly, updateOrderStatus);

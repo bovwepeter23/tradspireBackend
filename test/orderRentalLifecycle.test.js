@@ -6,7 +6,7 @@ const Cart = require('../models/Cart');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const orderController = require('../controllers/orderController');
-const { adminOnly } = require('../middleware/auth');
+const { adminOnly, protect } = require('../middleware/auth');
 const orderRoutes = require('../routes/orderRoutes');
 
 const orderId = '65a000000000000000000010';
@@ -158,17 +158,66 @@ test('purchase orders retain their existing status behavior and do not get renta
 test('admin order listing returns status, rental item details, and returnDueAt', async () => {
   const order = makeOrder({ status: 'return_due' });
   order.returnDueAt = new Date('2026-11-01T12:00:00.000Z');
+  order.deliveryAddress = { phone: '+233 20 123 4567' };
   replace(Order, 'find', () => ({
     sort: async () => [order]
   }));
 
   const res = response();
-  await orderController.getAllOrders({ query: {} }, res);
+  await orderController.getAllOrders({ query: {}, user: { _id: userId, role: 'admin' } }, res);
 
   assert.equal(res.body.orders[0].status, 'return_due');
   assert.equal(res.body.orders[0].items[1].purchaseType, 'rent');
   assert.equal(res.body.orders[0].items[1].rentalDays, 3);
   assert.equal(res.body.orders[0].returnDueAt.toISOString(), '2026-11-01T12:00:00.000Z');
+  assert.equal(res.body.orders[0].customerPhone, '+233 20 123 4567');
+  assert.equal(res.body.orders[0].phone, '+233 20 123 4567');
+});
+
+test('order creation falls back to the customer profile phone when address phone is missing', async () => {
+  const rentalProductId = '65a000000000000000000020';
+  const cart = {
+    items: [{ product: rentalProductId, purchaseType: 'rent', quantity: 1, rentalDays: 2 }],
+    async save() {}
+  };
+  const session = {
+    startTransaction() {},
+    commitTransaction: async () => {},
+    abortTransaction: async () => {},
+    endSession: async () => {}
+  };
+  replace(mongoose, 'startSession', async () => session);
+  replace(Cart, 'findOne', () => ({
+    session: () => ({ then: (resolve, reject) => Promise.resolve(cart).then(resolve, reject) })
+  }));
+  replace(Product, 'findById', () => ({
+    session: () => ({
+      then: (resolve, reject) => Promise.resolve({
+        _id: rentalProductId,
+        name: 'Chair',
+        image: 'chair.jpg',
+        rentPricePerDay: 5,
+        availableFor: ['rent']
+      }).then(resolve, reject)
+    })
+  }));
+  let createdOrder;
+  replace(Order.prototype, 'save', async function () { createdOrder = this; });
+
+  const res = response();
+  await orderController.createOrder({
+    user: { _id: userId, phone: '+233 20 987 6543' },
+    body: {
+      items: [{ productId: rentalProductId, quantity: 1, purchaseType: 'rent', rentalDays: 2 }],
+      deliveryAddress: {
+        recipientName: 'Customer', street: '1 Main St', city: 'Accra'
+      }
+    }
+  }, res);
+
+  assert.equal(res.statusCode, 201);
+  assert.equal(createdOrder.customerPhone, '+233 20 987 6543');
+  assert.equal(createdOrder.deliveryAddress.phone, '+233 20 987 6543');
 });
 
 test('admin can explicitly filter orders containing rental items', async () => {
@@ -180,7 +229,10 @@ test('admin can explicitly filter orders containing rental items', async () => {
   });
 
   const res = response();
-  await orderController.getAllOrders({ query: { purchaseType: 'rent' } }, res);
+  await orderController.getAllOrders({
+    query: { purchaseType: 'rent' },
+    user: { _id: userId, role: 'admin' }
+  }, res);
 
   assert.deepEqual(appliedFilter, {
     items: { $elemMatch: { purchaseType: 'rent' } }
@@ -190,9 +242,41 @@ test('admin can explicitly filter orders containing rental items', async () => {
   assert.equal(res.body.orders[0].items.some((item) => item.purchaseType === 'rent'), true);
 });
 
+test('ordinary customer order list is scoped to that customer only', async () => {
+  let appliedFilter;
+  replace(Order, 'find', (filter) => {
+    appliedFilter = filter;
+    return { sort: async () => [] };
+  });
+
+  const res = response();
+  await orderController.getAllOrders({
+    query: {},
+    user: { _id: userId, role: 'user' }
+  }, res);
+
+  assert.deepEqual(appliedFilter, { user: userId });
+  assert.deepEqual(res.body.orders, []);
+});
+
+test('general order list route requires authentication but not admin authorization', () => {
+  const orderListRoute = orderRoutes.stack.find((layer) =>
+    layer.route?.path === '/' && layer.route.methods.get);
+  assert.equal(orderListRoute.route.stack.length, 2);
+  assert.equal(orderListRoute.route.stack[0].handle, protect);
+  assert.equal(orderListRoute.route.stack[1].handle, orderController.getAllOrders);
+
+  const adminOrderListRoute = orderRoutes.stack.find((layer) =>
+    layer.route?.path === '/admin' && layer.route.methods.get);
+  assert.equal(adminOrderListRoute.route.stack.some((handler) => handler.name === 'adminOnly'), true);
+});
+
 test('admin order listing rejects unsupported purchaseType filters', async () => {
   const res = response();
-  await orderController.getAllOrders({ query: { purchaseType: 'lease' } }, res);
+  await orderController.getAllOrders({
+    query: { purchaseType: 'lease' },
+    user: { _id: userId, role: 'admin' }
+  }, res);
   assert.equal(res.statusCode, 400);
   assert.match(res.body.message, /purchaseType must be buy or rent/);
 });

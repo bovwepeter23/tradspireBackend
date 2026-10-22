@@ -30,6 +30,7 @@ const orderSchema = new mongoose.Schema({
     validate: { validator: (items) => items.length > 0, message: 'An order must contain at least one item' }
   },
   deliveryAddress: { type: deliveryAddressSchema, required: true },
+  customerPhone: { type: String, trim: true, maxlength: 30 },
   subtotal: { type: Number, required: true, min: 0 },
   total: { type: Number, required: true, min: 0 },
   status: {
