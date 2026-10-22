@@ -218,7 +218,7 @@ exports.cancelOrder = async (req, res) => {
 
   order.status = 'cancelled';
   order.cancelledAt = new Date();
-  order.cancellationReason = String(req.body.reason || '').trim();
+  order.cancellationReason = String(req.body?.reason || '').trim();
   await order.save();
   return res.json({ success: true, order });
 };

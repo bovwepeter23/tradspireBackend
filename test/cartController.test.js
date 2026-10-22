@@ -96,6 +96,45 @@ test('persists, merges compatible cart items, and returns current product price'
   assert.equal(res.body.cart.items[0].productId._id, productId);
 });
 
+test('adds rental cart items with server price and rental details', async () => {
+  const cart = makeCart();
+  replace(Cart, 'findOne', async () => cart);
+  replace(Product, 'findById', async () => product);
+  replace(Product, 'find', async () => [product]);
+
+  const res = response();
+  await cartController.addCartItem({
+    user: { _id: userId },
+    body: { productId, quantity: 2, purchaseType: 'rent', rentalDays: 5, price: 0 }
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(cart.items[0].purchaseType, 'rent');
+  assert.equal(cart.items[0].rentalDays, 5);
+  assert.equal(res.body.cart.items[0].price, 25);
+  assert.equal(res.body.cart.items[0].quantity, 2);
+  assert.equal(res.body.cart.items[0].name, 'Desk');
+  assert.equal(res.body.cart.items[0].image, 'desk.jpg');
+});
+
+test('rejects invalid rental durations and products unavailable for rent', async () => {
+  const invalidDuration = response();
+  await cartController.addCartItem({
+    user: { _id: userId },
+    body: { productId, quantity: 1, purchaseType: 'rent', rentalDays: 366 }
+  }, invalidDuration);
+  assert.equal(invalidDuration.statusCode, 400);
+
+  replace(Product, 'findById', async () => ({ ...product, availableFor: ['buy'] }));
+  const unavailable = response();
+  await cartController.addCartItem({
+    user: { _id: userId },
+    body: { productId, quantity: 1, purchaseType: 'rent', rentalDays: 1 }
+  }, unavailable);
+  assert.equal(unavailable.statusCode, 400);
+  assert.match(unavailable.body.message, /not available to rent/);
+});
+
 test('creates an empty persisted cart for a first-time cart read', async () => {
   let createdFor;
   replace(Cart, 'findOne', async () => null);

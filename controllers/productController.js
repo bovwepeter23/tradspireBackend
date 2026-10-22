@@ -8,6 +8,7 @@ const publicProduct = (product, assignedMainCategory, assignedSubCategory) => {
   const subCategory = product.subCategoryId?.name ? product.subCategoryId : assignedSubCategory;
   const mainCategoryId = product.mainCategoryId?._id || product.mainCategoryId || mainCategory?._id;
   const subCategoryId = product.subCategoryId?._id || product.subCategoryId || subCategory?._id;
+  const availableFor = product.availableFor?.length ? product.availableFor : ['buy'];
   return {
     _id: product._id,
     name: product.name,
@@ -29,7 +30,10 @@ const publicProduct = (product, assignedMainCategory, assignedSubCategory) => {
       name: subCategory.name,
       slug: subCategory.slug
     } : null,
-    availableFor: product.availableFor?.length ? product.availableFor : ['buy'],
+    availableFor,
+    listingType: availableFor,
+    listingTypes: availableFor,
+    isRentable: availableFor.includes('rent'),
     price: product.price,
     rentPricePerDay: product.rentPricePerDay,
     origin: product.origin,
@@ -62,7 +66,16 @@ const productFields = (body, existingProduct, mainCategory, subCategory) => {
         existingProduct?.category ? [existingProduct.category] : [mainCategory.name])
     .map((category) => String(category || '').trim())
     .filter(Boolean);
-  const availableFor = (has('availableFor') ? parseList(body.availableFor) : existingProduct?.availableFor || ['buy'])
+  let requestedAvailability = has('availableFor') ? parseList(body.availableFor) :
+    has('listingType') ? parseList(body.listingType) :
+      has('listingTypes') ? parseList(body.listingTypes) :
+        has('isRentable') ?
+          (body.isRentable === true || String(body.isRentable).toLowerCase() === 'true' ? ['rent'] : ['buy']) :
+          existingProduct?.availableFor || ['buy'];
+  if (requestedAvailability.length === 1 && String(requestedAvailability[0]).toLowerCase() === 'both') {
+    requestedAvailability = ['buy', 'rent'];
+  }
+  const availableFor = requestedAvailability
     .flatMap((option) => String(option).toLowerCase() === 'both' ? ['buy', 'rent'] : [String(option).toLowerCase()]);
   const uniqueOptions = [...new Set(availableFor)];
 

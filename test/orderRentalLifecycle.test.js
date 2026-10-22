@@ -118,6 +118,30 @@ test('rental cancellation is allowed before dispatch and rejected after dispatch
   assert.equal(shipped.status, 'shipped');
 });
 
+test('customer cancellation endpoint retains owner checks and rejects dispatched rentals', async () => {
+  const processing = makeOrder({ status: 'processing' });
+  replace(Order, 'findById', async () => processing);
+  const res = response();
+  await orderController.cancelOrder({
+    params: { id: orderId },
+    user: { _id: userId },
+    body: {}
+  }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(processing.status, 'cancelled');
+
+  const shipped = makeOrder({ status: 'shipped' });
+  replace(Order, 'findById', async () => shipped);
+  const denied = response();
+  await orderController.cancelOrder({
+    params: { id: orderId },
+    user: { _id: userId },
+    body: {}
+  }, denied);
+  assert.equal(denied.statusCode, 409);
+  assert.equal(shipped.status, 'shipped');
+});
+
 test('purchase orders retain their existing status behavior and do not get rental dates', async () => {
   const order = makeOrder({ rental: false });
   for (const status of ['confirmed', 'processing', 'shipped', 'delivered']) {
@@ -153,7 +177,7 @@ test('mixed carts submitted to the rental endpoint preserve purchaseType and ren
   const cart = {
     items: [
       { product: purchaseProductId, purchaseType: 'buy', quantity: 2, rentalDays: null },
-      { product: rentalProductId, purchaseType: 'rent', quantity: 1, rentalDays: 4 }
+      { product: rentalProductId, purchaseType: 'rent', quantity: 2, rentalDays: 4 }
     ],
     async save() { this.saved = true; }
   };
@@ -190,7 +214,7 @@ test('mixed carts submitted to the rental endpoint preserve purchaseType and ren
     body: {
       items: [
         { productId: purchaseProductId, purchaseType: 'buy', quantity: 2 },
-        { productId: rentalProductId, purchaseType: 'rent', quantity: 1, rentalDays: 4 }
+        { productId: rentalProductId, purchaseType: 'rent', quantity: 2, rentalDays: 4 }
       ],
       deliveryAddress: {
         recipientName: 'Buyer', phone: '123', street: '1 Main St', city: 'Town'
@@ -203,10 +227,15 @@ test('mixed carts submitted to the rental endpoint preserve purchaseType and ren
   assert.equal(res.body.order.items[0].rentalDays, undefined);
   assert.equal(res.body.order.items[1].purchaseType, 'rent');
   assert.equal(res.body.order.items[1].rentalDays, 4);
+  assert.equal(res.body.order.items[1].unitPrice, 5);
+  assert.equal(res.body.order.items[1].lineTotal, 40);
+  assert.equal(res.body.order.total, 80);
   assert.equal(cart.items.length, 0);
   assert.equal(cart.saved, true);
   assert.ok(orderRoutes.stack.some((layer) =>
     layer.route?.path === '/rent' && layer.route.methods.post));
+  assert.ok(orderRoutes.stack.some((layer) =>
+    layer.route?.path === '/:id/cancel' && layer.route.methods.put));
 });
 
 test('admin-only authorization rejects users and permits admins', () => {
