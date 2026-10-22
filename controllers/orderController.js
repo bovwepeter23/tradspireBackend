@@ -189,6 +189,12 @@ exports.getMyOrders = async (req, res) => {
 
 exports.getAllOrders = async (req, res) => {
   const filter = {};
+  if (req.query.purchaseType) {
+    if (!['buy', 'rent'].includes(req.query.purchaseType)) {
+      return res.status(400).json({ message: 'purchaseType must be buy or rent' });
+    }
+    filter.items = { $elemMatch: { purchaseType: req.query.purchaseType } };
+  }
   if (req.query.status) {
     if (![...purchaseOrderStatuses, ...rentalOrderStatuses].includes(req.query.status)) {
       return res.status(400).json({ message: 'Invalid order status' });

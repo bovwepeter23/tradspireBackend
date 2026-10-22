@@ -171,6 +171,32 @@ test('admin order listing returns status, rental item details, and returnDueAt',
   assert.equal(res.body.orders[0].returnDueAt.toISOString(), '2026-11-01T12:00:00.000Z');
 });
 
+test('admin can explicitly filter orders containing rental items', async () => {
+  const order = makeOrder({ status: 'pending' });
+  let appliedFilter;
+  replace(Order, 'find', (filter) => {
+    appliedFilter = filter;
+    return { sort: async () => [order] };
+  });
+
+  const res = response();
+  await orderController.getAllOrders({ query: { purchaseType: 'rent' } }, res);
+
+  assert.deepEqual(appliedFilter, {
+    items: { $elemMatch: { purchaseType: 'rent' } }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.orders.length, 1);
+  assert.equal(res.body.orders[0].items.some((item) => item.purchaseType === 'rent'), true);
+});
+
+test('admin order listing rejects unsupported purchaseType filters', async () => {
+  const res = response();
+  await orderController.getAllOrders({ query: { purchaseType: 'lease' } }, res);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body.message, /purchaseType must be buy or rent/);
+});
+
 test('mixed carts submitted to the rental endpoint preserve purchaseType and rentalDays', async () => {
   const rentalProductId = '65a000000000000000000020';
   const purchaseProductId = '65a000000000000000000021';
