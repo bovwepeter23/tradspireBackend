@@ -4,10 +4,24 @@ const Product = require('../models/Product');
 const Cart = require('../models/Cart');
 const { validateOrderItems } = require('./cartController');
 
-const orderStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
-const terminalStatuses = ['delivered', 'cancelled'];
+const purchaseOrderStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
+const rentalOrderStatuses = [
+  'pending', 'processing', 'shipped', 'delivered', 'return_due',
+  'returned', 'inspection', 'completed', 'deposit_refunded', 'cancelled'
+];
 const cancellationStatuses = ['pending', 'confirmed', 'processing'];
 const addressFields = ['recipientName', 'phone', 'street', 'city', 'region', 'postalCode', 'country', 'instructions', 'apartment'];
+const rentalTransitions = {
+  pending: ['processing', 'cancelled'],
+  processing: ['shipped', 'cancelled'],
+  shipped: ['delivered'],
+  delivered: ['return_due'],
+  return_due: ['returned'],
+  returned: ['inspection'],
+  inspection: ['completed', 'deposit_refunded']
+};
+
+const hasRentalItems = (order) => order.items.some((item) => item.purchaseType === 'rent');
 
 const normalizeAddress = (address) => {
   if (!address || typeof address !== 'object' || Array.isArray(address)) return null;
@@ -176,7 +190,7 @@ exports.getMyOrders = async (req, res) => {
 exports.getAllOrders = async (req, res) => {
   const filter = {};
   if (req.query.status) {
-    if (!orderStatuses.includes(req.query.status)) {
+    if (![...purchaseOrderStatuses, ...rentalOrderStatuses].includes(req.query.status)) {
       return res.status(400).json({ message: 'Invalid order status' });
     }
     filter.status = req.query.status;
@@ -212,16 +226,55 @@ exports.cancelOrder = async (req, res) => {
 exports.updateOrderStatus = async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ message: 'Order not found' });
   const { status } = req.body;
-  if (!orderStatuses.includes(status)) return res.status(400).json({ message: 'Invalid order status' });
+  if (typeof status !== 'string' ||
+      ![...purchaseOrderStatuses, ...rentalOrderStatuses].includes(status)) {
+    return res.status(400).json({ message: 'Invalid order status' });
+  }
 
   const order = await Order.findById(req.params.id);
   if (!order) return res.status(404).json({ message: 'Order not found' });
-  if (terminalStatuses.includes(order.status)) {
-    return res.status(409).json({ message: 'Delivered or cancelled orders cannot be changed' });
+
+  const isRental = hasRentalItems(order);
+  if (isRental) {
+    if (!rentalOrderStatuses.includes(status)) {
+      return res.status(400).json({ message: 'Invalid status for a rental order' });
+    }
+    if (!rentalTransitions[order.status]?.includes(status)) {
+      return res.status(409).json({
+        message: `Rental orders cannot transition from ${order.status} to ${status}`
+      });
+    }
+    if (status === 'deposit_refunded' && req.body.refundCompleted !== true) {
+      return res.status(400).json({
+        message: 'Set refundCompleted to true only after the deposit refund has completed'
+      });
+    }
+    if (status === 'processing' && order.items
+      .filter((item) => item.purchaseType === 'rent')
+      .some((item) => !Number.isInteger(item.rentalDays) || item.rentalDays < 1)) {
+      return res.status(409).json({ message: 'Rental order is missing a valid rental duration' });
+    }
+  } else {
+    if (!purchaseOrderStatuses.includes(status)) {
+      return res.status(400).json({ message: 'Invalid status for a purchase order' });
+    }
+    if (['delivered', 'cancelled'].includes(order.status)) {
+      return res.status(409).json({ message: 'Delivered or cancelled orders cannot be changed' });
+    }
+    if (status === 'cancelled' && !cancellationStatuses.includes(order.status)) {
+      return res.status(409).json({ message: 'Orders cannot be cancelled after dispatch' });
+    }
   }
 
   order.status = status;
   if (status === 'delivered') order.deliveredAt = new Date();
+  if (isRental && order.status === 'processing') {
+    const rentalDays = Math.max(...order.items
+      .filter((item) => item.purchaseType === 'rent')
+      .map((item) => item.rentalDays));
+    order.returnDueAt = new Date(Date.now() + rentalDays * 24 * 60 * 60 * 1000);
+  }
+  if (isRental && status === 'deposit_refunded') order.depositRefundedAt = new Date();
   if (status === 'cancelled') {
     order.cancelledAt = new Date();
     order.cancellationReason = String(req.body.reason || '').trim();

@@ -12,6 +12,7 @@ const { protect, adminOnly } = require('../middleware/auth');
 const router = express.Router();
 
 router.post('/', protect, createOrder);
+router.post('/rent', protect, createOrder);
 router.get('/mine', protect, getMyOrders);
 router.get('/admin', protect, adminOnly, getAllOrders);
 router.get('/', protect, adminOnly, getAllOrders);

@@ -34,12 +34,17 @@ const orderSchema = new mongoose.Schema({
   total: { type: Number, required: true, min: 0 },
   status: {
     type: String,
-    enum: ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'],
+    enum: [
+      'pending', 'confirmed', 'processing', 'shipped', 'delivered',
+      'return_due', 'returned', 'inspection', 'completed', 'deposit_refunded', 'cancelled'
+    ],
     default: 'pending',
     index: true
   },
   cancelledAt: Date,
   deliveredAt: Date,
+  returnDueAt: Date,
+  depositRefundedAt: Date,
   cancellationReason: { type: String, trim: true, maxlength: 500, default: '' }
 }, { timestamps: true });
 
